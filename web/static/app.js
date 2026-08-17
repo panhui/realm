@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopButton = document.getElementById('stopButton');
     const restartButton = document.getElementById('restartButton');
     const addRuleButton = document.getElementById('addRuleButton');
+    const cancelEditButton = document.getElementById('cancelEditButton');
+    const ruleFormTitle = document.getElementById('ruleFormTitle');
     const addBatchRulesButton = document.getElementById('addBatchRulesButton');
     const logoutButton = document.getElementById('logoutButton');
     const localPortInput = document.getElementById('localPort');
@@ -18,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPage = 1;
     let pageSize = 10;
     let totalRules = 0;
+    let editingListen = null;
 
     const pageSizeSelect = document.getElementById('pageSizeSelect');
 
@@ -158,6 +161,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const actionCell = document.createElement('td');
+            const editButton = document.createElement('button');
+            editButton.className = 'edit-btn';
+            editButton.textContent = '编辑';
+            editButton.addEventListener('click', () => beginEdit(rule));
+            actionCell.appendChild(editButton);
+
             const deleteButton = document.createElement('button');
             deleteButton.className = 'delete-btn';
             deleteButton.dataset.listen = listen;
@@ -199,10 +208,69 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${trimmedHost}:${port}`;
     }
 
+    function formatListenAddress(port) {
+        if (editingListen) {
+            const originalListen = splitHostPort(editingListen);
+            if (originalListen) {
+                return formatHostPort(originalListen.host, port);
+            }
+        }
+        return `[::]:${port}`;
+    }
+
     function updateBalanceFields() {
         const hasExtraRemotes = extraRemotesInput.value.trim().length > 0;
         balanceStrategyInput.disabled = !hasExtraRemotes;
         balanceWeightsInput.disabled = !hasExtraRemotes;
+    }
+
+    function beginEdit(rule) {
+        const listenParts = splitHostPort(rule.listen);
+        const remoteParts = splitHostPort(rule.remote);
+        if (!listenParts || !remoteParts) {
+            outputDiv.textContent = '该规则地址格式无法在表单中编辑';
+            return;
+        }
+
+        editingListen = rule.listen;
+        localPortInput.value = listenParts.port;
+        remoteIPInput.value = remoteParts.host;
+        remotePortInput.value = remoteParts.port;
+        extraRemotesInput.value = (rule.extraRemotes || []).join('\n');
+
+        const balance = rule.balance || '';
+        const colonIndex = balance.indexOf(':');
+        if (colonIndex !== -1) {
+            const strategy = balance.slice(0, colonIndex).trim();
+            if (strategy === 'roundrobin' || strategy === 'iphash') {
+                balanceStrategyInput.value = strategy;
+            }
+            balanceWeightsInput.value = balance.slice(colonIndex + 1).trim();
+        } else {
+            balanceStrategyInput.value = 'roundrobin';
+            balanceWeightsInput.value = '';
+        }
+
+        updateBalanceFields();
+        ruleFormTitle.textContent = '编辑转发规则';
+        addRuleButton.textContent = '保存修改';
+        cancelEditButton.hidden = false;
+        ruleFormTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        localPortInput.focus({ preventScroll: true });
+    }
+
+    function resetRuleForm() {
+        editingListen = null;
+        localPortInput.value = '';
+        remoteIPInput.value = '';
+        remotePortInput.value = '';
+        extraRemotesInput.value = '';
+        balanceWeightsInput.value = '';
+        balanceStrategyInput.value = 'roundrobin';
+        ruleFormTitle.textContent = '添加转发规则';
+        addRuleButton.textContent = '添加规则';
+        cancelEditButton.hidden = true;
+        updateBalanceFields();
     }
 
     function updatePaginationInfo() {
@@ -247,6 +315,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             outputDiv.textContent = '规则已删除，服务已重启';
+            if (editingListen === listenAddress) {
+                resetRuleForm();
+            }
             await refreshRulesAfterChange();
             await updateServiceStatus();
         } catch (error) {
@@ -270,8 +341,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const usedPorts = new Set(allRules.map(r => r.listen.substring(r.listen.lastIndexOf(':') + 1)));
-            if (usedPorts.has(localPort)) {
+            const portIsUsed = allRules.some(rule => {
+                const rulePort = splitHostPort(rule.listen)?.port;
+                return rule.listen !== editingListen && rulePort === localPort;
+            });
+            if (portIsUsed) {
                 outputDiv.textContent = `端口 ${localPort} 已被占用`;
                 return;
             }
@@ -292,13 +366,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 balance = `${balanceStrategyInput.value}: ${weights.join(', ')}`;
             }
 
-            const response = await fetch('/add_rule', {
-                method: 'POST',
+            const isEditing = editingListen !== null;
+            const requestURL = isEditing
+                ? `/update_rule?listen=${encodeURIComponent(editingListen)}`
+                : '/add_rule';
+            const response = await fetch(requestURL, {
+                method: isEditing ? 'PUT' : 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    listen: `[::]:${localPort}`,
+                    listen: formatListenAddress(localPort),
                     remote: formatHostPort(remoteIP, remotePort),
                     extra_remotes: extraRemotes,
                     balance
@@ -313,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (_) {
                     // 保留 HTTP 状态文本。
                 }
-                throw new Error('添加规则失败：' + detail);
+                throw new Error(`${isEditing ? '修改' : '添加'}规则失败：${detail}`);
             }
 
             const restartResponse = await fetch('/restart_service', {
@@ -323,16 +401,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('重启服务失败：' + restartResponse.statusText);
             }
 
-            outputDiv.textContent = '规则添加成功，服务已重启';
-            localPortInput.value = '';
-            remoteIPInput.value = '';
-            remotePortInput.value = '';
-            extraRemotesInput.value = '';
-            balanceWeightsInput.value = '';
-            balanceStrategyInput.value = 'roundrobin';
-            updateBalanceFields();
-            totalRules += 1;
-            await refreshRulesAfterChange();
+            outputDiv.textContent = `规则${isEditing ? '修改' : '添加'}成功，服务已重启`;
+            resetRuleForm();
+            if (isEditing) {
+                await fetchForwardingRules(currentPage);
+            } else {
+                totalRules += 1;
+                await refreshRulesAfterChange();
+            }
             await updateServiceStatus();
         } catch (error) {
             console.error('添加失败:', error);
@@ -482,6 +558,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     addRuleButton.addEventListener('click', addRule);
+    cancelEditButton.addEventListener('click', () => {
+        resetRuleForm();
+        outputDiv.textContent = '已取消编辑';
+    });
     addBatchRulesButton.addEventListener('click', addBatchRules);
     extraRemotesInput.addEventListener('input', updateBalanceFields);
 

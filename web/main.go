@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -53,11 +54,13 @@ type PanelConfig struct {
 }
 
 var (
-	mu               sync.Mutex
-	config           Config
-	panelConfig      PanelConfig
-	httpsWarningOnce sync.Once
-	realmConfigPath  = "/root/.realm/config.toml"
+	mu                sync.Mutex
+	config            Config
+	panelConfig       PanelConfig
+	httpsWarningOnce  sync.Once
+	realmConfigPath   = "/root/.realm/config.toml"
+	errRuleNotFound   = errors.New("未找到转发规则")
+	errListenConflict = errors.New("端口已存在")
 )
 
 func LoadConfig() error {
@@ -182,6 +185,36 @@ func validateForwardingRule(rule ForwardingRule) error {
 				return fmt.Errorf("权重必须是大于 0 的整数")
 			}
 		}
+	}
+
+	return nil
+}
+
+// updateForwardingRuleLocked replaces a rule and persists the configuration.
+// Caller must hold mu.
+func updateForwardingRuleLocked(originalListen string, input ForwardingRule) error {
+	ruleIndex := -1
+	for i, rule := range config.Endpoints {
+		if rule.Listen == originalListen {
+			ruleIndex = i
+			break
+		}
+	}
+	if ruleIndex == -1 {
+		return errRuleNotFound
+	}
+
+	for i, rule := range config.Endpoints {
+		if i != ruleIndex && rule.Listen == input.Listen {
+			return errListenConflict
+		}
+	}
+
+	originalRule := config.Endpoints[ruleIndex]
+	config.Endpoints[ruleIndex] = input
+	if err := saveConfigLocked(); err != nil {
+		config.Endpoints[ruleIndex] = originalRule
+		return err
 	}
 
 	return nil
@@ -376,6 +409,39 @@ func main() {
 			}
 
 			c.JSON(201, input)
+		})
+
+		authorized.PUT("/update_rule", func(c *gin.Context) {
+			originalListen := c.Query("listen")
+			if originalListen == "" {
+				c.JSON(400, gin.H{"error": "listen 参数不能为空"})
+				return
+			}
+
+			var input ForwardingRule
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "无效的输入"})
+				return
+			}
+			if err := validateForwardingRule(input); err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return
+			}
+
+			mu.Lock()
+			err := updateForwardingRuleLocked(originalListen, input)
+			mu.Unlock()
+
+			switch {
+			case errors.Is(err, errRuleNotFound):
+				c.JSON(404, gin.H{"error": err.Error()})
+			case errors.Is(err, errListenConflict):
+				c.JSON(409, gin.H{"error": err.Error()})
+			case err != nil:
+				c.JSON(500, gin.H{"error": "保存配置失败"})
+			default:
+				c.JSON(200, input)
+			}
 		})
 
 		authorized.DELETE("/delete_rule", func(c *gin.Context) {

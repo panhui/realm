@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -187,5 +188,68 @@ func TestSaveConfigOmitsEmptyLoadBalancingFields(t *testing.T) {
 	}
 	if strings.Contains(string(contents), "extra_remotes") || strings.Contains(string(contents), "balance") {
 		t.Fatalf("single-remote config contains empty load-balancing fields:\n%s", contents)
+	}
+}
+
+func TestUpdateForwardingRuleLocked(t *testing.T) {
+	originalPath := realmConfigPath
+	originalConfig := config
+	t.Cleanup(func() {
+		realmConfigPath = originalPath
+		config = originalConfig
+	})
+
+	realmConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	config = Config{
+		Endpoints: []ForwardingRule{
+			{Listen: "[::]:10000", Remote: "10.0.0.11:443"},
+			{Listen: "[::]:20000", Remote: "10.0.0.21:443"},
+		},
+	}
+	updated := ForwardingRule{
+		Listen:       "[::]:10001",
+		Remote:       "10.0.0.12:8443",
+		ExtraRemotes: []string{"10.0.0.13:8443"},
+		Balance:      "roundrobin: 2, 1",
+	}
+
+	if err := updateForwardingRuleLocked("[::]:10000", updated); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(config.Endpoints[0], updated) {
+		t.Fatalf("rule was not updated: %#v", config.Endpoints[0])
+	}
+
+	config = Config{}
+	if err := LoadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Endpoints) != 2 || !reflect.DeepEqual(config.Endpoints[0], updated) {
+		t.Fatalf("updated rule was not persisted: %#v", config.Endpoints)
+	}
+}
+
+func TestUpdateForwardingRuleLockedRejectsConflictAndMissingRule(t *testing.T) {
+	originalPath := realmConfigPath
+	originalConfig := config
+	t.Cleanup(func() {
+		realmConfigPath = originalPath
+		config = originalConfig
+	})
+
+	realmConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	config = Config{
+		Endpoints: []ForwardingRule{
+			{Listen: "[::]:10000", Remote: "10.0.0.11:443"},
+			{Listen: "[::]:20000", Remote: "10.0.0.21:443"},
+		},
+	}
+
+	conflicting := ForwardingRule{Listen: "[::]:20000", Remote: "10.0.0.12:443"}
+	if err := updateForwardingRuleLocked("[::]:10000", conflicting); !errors.Is(err, errListenConflict) {
+		t.Fatalf("expected listen conflict, got %v", err)
+	}
+	if err := updateForwardingRuleLocked("[::]:30000", conflicting); !errors.Is(err, errRuleNotFound) {
+		t.Fatalf("expected missing rule, got %v", err)
 	}
 }
