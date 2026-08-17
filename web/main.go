@@ -20,6 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const panelSessionMaxAge = 30 * 24 * 60 * 60
+
 type ForwardingRule struct {
 	Listen       string   `toml:"listen" json:"listen"`
 	Remote       string   `toml:"remote" json:"remote"`
@@ -283,7 +285,7 @@ func main() {
 		sessionSecret = hex.EncodeToString(b)
 	}
 	store := cookie.NewStore([]byte(sessionSecret))
-	store.Options(sessionOptions(3600 * 2))
+	store.Options(sessionOptions(panelSessionMaxAge))
 	r.Use(sessions.Sessions("realm_session", store))
 	r.Use(HTTPSRedirect())
 
@@ -311,7 +313,7 @@ func main() {
 		if loginData.Password == panelConfig.Auth.Password {
 			session := sessions.Default(c)
 			session.Set("user", true)
-			session.Options(sessionOptions(3600 * 2))
+			session.Options(sessionOptions(panelSessionMaxAge))
 			if err := session.Save(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Session保存失败"})
 				return

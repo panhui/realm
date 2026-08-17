@@ -4,7 +4,7 @@
 
 本脚本在原教程基础上增加了 Realm 安装、转发规则管理、服务重启、脚本更新和可视化面板管理功能。
 
-## v3.4.1 更新重点
+## v3.4.2 更新重点
 
 - 一个监听端口可以配置主远端和多个额外远端。
 - 支持 `roundrobin` 轮询和 `iphash` 来源 IP 固定策略。
@@ -15,12 +15,13 @@
 - 规则列表新增“编辑”按钮，可修改监听端口、全部远端、策略和权重。
 - 默认每页显示规则数由 10 条调整为 50 条。
 - 新安装面板的默认密码调整为 `Qwer1234.`。
+- 登录成功后的会话有效期调整为 30 天，主动退出仍会立即失效。
 
 ## 脚本界面预览
 
 ```text
 ################################################
-#        Realm 一键转发脚本 (v3.4.1)         #
+#        Realm 一键转发脚本 (v3.4.2)         #
 ################################################
  Realm 状态: 运行中
  面板 状态: 已安装但未启动
@@ -48,7 +49,7 @@
 ### Debian / Ubuntu / CentOS
 
 ```bash
-curl -L https://github.com/panhui/realm/releases/download/v3.4.1/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -L https://github.com/panhui/realm/releases/download/v3.4.2/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 或使用主分支最新版：

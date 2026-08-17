@@ -22,6 +22,16 @@ func TestValidateForwardingRuleWithRoundRobin(t *testing.T) {
 	}
 }
 
+func TestPanelSessionLastsThirtyDays(t *testing.T) {
+	options := sessionOptions(panelSessionMaxAge)
+	if options.MaxAge != 30*24*60*60 {
+		t.Fatalf("expected 30-day session, got %d seconds", options.MaxAge)
+	}
+	if !options.HttpOnly {
+		t.Fatal("session cookie must remain HttpOnly")
+	}
+}
+
 func TestValidateForwardingRuleWithIPHash(t *testing.T) {
 	rule := ForwardingRule{
 		Listen:       "0.0.0.0:10000",
