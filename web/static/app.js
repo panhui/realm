@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let allRules = [];
     let currentPage = 1;
-    let pageSize = 10;
+    let pageSize = 50;
     let totalRules = 0;
     let editingListen = null;
 

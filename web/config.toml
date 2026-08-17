@@ -1,5 +1,5 @@
 [auth]
-password = "123456" # 面板密码
+password = "Qwer1234." # 面板密码
 
 [server]
 port = 8081 # 面板端口
