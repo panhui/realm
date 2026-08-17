@@ -1,17 +1,16 @@
 #!/bin/bash
 
 # ==========================================
-# Realm 一键转发脚本 v3.3.0
+# Realm 一键转发脚本 v3.3.1
 # 更新日志:
-# 1. 面板支持一个监听端口转发到多个远端
-# 2. 支持 roundrobin / iphash 策略及节点权重
-# 3. 面板读写时保留 extra_remotes 和 balance 配置
-# 4. 命令行删除规则时保留其余规则的完整配置
+# 1. 修复从旧版升级时静态资源目录嵌套导致前后端版本不一致
+# 2. 升级面板前自动停止服务并完整替换前端资源
+# 3. 保留已有面板配置、Realm 配置和证书
 # ==========================================
 
 # --- 基础配置 ---
-sh_ver="3.3.0"
-panel_ver="v3.3.0"
+sh_ver="3.3.1"
+panel_ver="v3.3.1"
 
 # 颜色定义
 RED="\033[31m"
@@ -641,10 +640,15 @@ install_panel() {
         return 1
     fi
 
+    # 升级时先停止旧面板，避免替换正在运行的二进制失败。
+    service_stop realm-panel >/dev/null 2>&1 || true
+
     cp "$found_bin" "$PANEL_BIN"
     chmod +x "$PANEL_BIN"
 
-    # 复制静态资源和模板
+    # 完整替换前端资源，避免 cp 到已有目录后形成 static/static、
+    # templates/templates，导致新版后端继续使用旧版页面。
+    rm -rf "$PANEL_DIR/static" "$PANEL_DIR/templates"
     [ -d "$tmp_dir/static" ]    && cp -r "$tmp_dir/static"    "$PANEL_DIR/"
     [ -d "$tmp_dir/templates" ] && cp -r "$tmp_dir/templates" "$PANEL_DIR/"
     # 兼容 zip 内有子目录的情况
