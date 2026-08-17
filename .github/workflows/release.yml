@@ -23,6 +23,12 @@ jobs:
           go-version-file: web/go.mod
           cache-dependency-path: web/go.sum
 
+      - name: Test
+        working-directory: web
+        run: |
+          go test ./...
+          go vet ./...
+
       - name: Build amd64
         working-directory: web
         run: |
@@ -47,4 +53,5 @@ jobs:
           files: |
             realm-panel-linux-amd64.zip
             realm-panel-linux-arm64.zip
+            realm.sh
           generate_release_notes: true

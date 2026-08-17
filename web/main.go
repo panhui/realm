@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -19,8 +20,10 @@ import (
 )
 
 type ForwardingRule struct {
-	Listen string `toml:"listen" json:"listen"`
-	Remote string `toml:"remote" json:"remote"`
+	Listen       string   `toml:"listen" json:"listen"`
+	Remote       string   `toml:"remote" json:"remote"`
+	ExtraRemotes []string `toml:"extra_remotes,omitempty" json:"extra_remotes,omitempty"`
+	Balance      string   `toml:"balance,omitempty" json:"balance,omitempty"`
 }
 
 type Config struct {
@@ -63,9 +66,11 @@ func LoadConfig() error {
 		return err
 	}
 
-	if _, err := toml.Decode(string(data), &config); err != nil {
+	var loaded Config
+	if _, err := toml.Decode(string(data), &loaded); err != nil {
 		return err
 	}
+	config = loaded
 
 	return nil
 }
@@ -139,6 +144,44 @@ func validateForwardingRule(rule ForwardingRule) error {
 	}
 	if err := validateForwardingAddress(rule.Remote); err != nil {
 		return fmt.Errorf("remote 格式无效")
+	}
+
+	seenRemotes := map[string]struct{}{rule.Remote: {}}
+	for _, remote := range rule.ExtraRemotes {
+		if err := validateForwardingAddress(remote); err != nil {
+			return fmt.Errorf("额外远端 %q 格式无效", remote)
+		}
+		if _, exists := seenRemotes[remote]; exists {
+			return fmt.Errorf("远端地址不能重复: %s", remote)
+		}
+		seenRemotes[remote] = struct{}{}
+	}
+
+	backendCount := 1 + len(rule.ExtraRemotes)
+	if backendCount > 1 && strings.TrimSpace(rule.Balance) == "" {
+		return fmt.Errorf("多个远端必须设置负载均衡策略")
+	}
+	if strings.TrimSpace(rule.Balance) != "" {
+		parts := strings.SplitN(rule.Balance, ":", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("balance 格式无效，应为 strategy: weight1, weight2")
+		}
+
+		strategy := strings.TrimSpace(parts[0])
+		if strategy != "roundrobin" && strategy != "iphash" {
+			return fmt.Errorf("不支持的负载均衡策略: %s", strategy)
+		}
+
+		weightValues := strings.Split(parts[1], ",")
+		if len(weightValues) != backendCount {
+			return fmt.Errorf("权重数量必须与远端数量一致")
+		}
+		for _, value := range weightValues {
+			weight, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || weight < 1 {
+				return fmt.Errorf("权重必须是大于 0 的整数")
+			}
+		}
 	}
 
 	return nil

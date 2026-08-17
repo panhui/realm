@@ -1,18 +1,17 @@
 #!/bin/bash
 
 # ==========================================
-# Realm 一键转发脚本 v3.2.6
+# Realm 一键转发脚本 v3.3.0
 # 更新日志:
-# 1. 修复 Alpine Linux (musl) 下 IP/域名正则校验失败的问题
-# 2. 新增 Alpine Linux / OpenRC 支持
-# 3. Alpine 自动选择 musl 版 Realm 二进制
-# 4. 面板服务控制兼容 systemd 与 OpenRC
-# 5. 构建产物改为 GitHub Actions 自动生成
+# 1. 面板支持一个监听端口转发到多个远端
+# 2. 支持 roundrobin / iphash 策略及节点权重
+# 3. 面板读写时保留 extra_remotes 和 balance 配置
+# 4. 命令行删除规则时保留其余规则的完整配置
 # ==========================================
 
 # --- 基础配置 ---
-sh_ver="3.2.6"
-panel_ver="v3.2.6"
+sh_ver="3.3.0"
+panel_ver="v3.3.0"
 
 # 颜色定义
 RED="\033[31m"
@@ -547,18 +546,18 @@ delete_forward() {
         echo -e "${RED}无效序号${PLAIN}"; return
     fi
     
-    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"; write_config_header
-    local del_idx=$((c-1))
-    for ((i=0; i<${#listens[@]}; i++)); do
-        if [ $i -ne $del_idx ]; then
-            cat <<EOF >> "$CONFIG_FILE"
-
-[[endpoints]]
-listen = "${listens[i]}"
-remote = "${remotes[i]}"
-EOF
-        fi
-    done
+    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+    # 删除所选 endpoints 配置块，而不是重新生成所有规则，避免丢失
+    # extra_remotes、balance 以及其他 Realm 高级配置。
+    awk -v target="$c" '
+        /^\[\[endpoints\]\][[:space:]]*$/ {
+            endpoint_index++
+            skipping = (endpoint_index == target)
+            if (!skipping) print
+            next
+        }
+        { if (!skipping) print }
+    ' "${CONFIG_FILE}.bak" > "$CONFIG_FILE"
     restart_service
 }
 
@@ -614,7 +613,7 @@ install_panel() {
     esac
 
     mkdir -p "$PANEL_DIR"
-    local url="https://github.com/wcwq98/realm/releases/download/${panel_ver}/${p_file}"
+    local url="https://github.com/panhui/realm/releases/download/${panel_ver}/${p_file}"
     local tmp_zip="/tmp/${p_file}"
     local tmp_dir="/tmp/realm_panel_$$"
 
@@ -679,7 +678,7 @@ uninstall_panel() {
 
 # --- 脚本更新 ---
 Update_Shell() {
-    local url="https://raw.githubusercontent.com/wcwq98/realm/main/realm.sh"
+    local url="https://raw.githubusercontent.com/panhui/realm/main/realm.sh"
     local new_ver=$(wget -qO- "$url" | grep 'sh_ver="' | awk -F "=" '{print $NF}' | tr -d '"' | head -1)
     [[ -z "$new_ver" ]] && { echo -e "${RED}检测失败${PLAIN}"; return; }
     [[ "$new_ver" == "$sh_ver" ]] && { echo "已是最新"; return; }

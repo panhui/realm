@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const localPortInput = document.getElementById('localPort');
     const remoteIPInput = document.getElementById('remoteIP');
     const remotePortInput = document.getElementById('remotePort');
+    const extraRemotesInput = document.getElementById('extraRemotes');
+    const balanceStrategyInput = document.getElementById('balanceStrategy');
+    const balanceWeightsInput = document.getElementById('balanceWeights');
     const rulesInput = document.getElementById('rulesInput');
 
     let allRules = [];
@@ -68,7 +71,9 @@ document.addEventListener('DOMContentLoaded', () => {
             allRules = data.rules.map(rule => {
                 const listen = rule.Listen || rule.listen;
                 const remote = rule.Remote || rule.remote;
-                return { listen, remote };
+                const extraRemotes = rule.ExtraRemotes || rule.extra_remotes || [];
+                const balance = rule.Balance || rule.balance || '';
+                return { listen, remote, extraRemotes, balance };
             });
 
             renderForwardingRules();
@@ -128,23 +133,37 @@ document.addEventListener('DOMContentLoaded', () => {
         allRules.forEach((rule, index) => {
             const listen = rule.listen || '';
             const remote = rule.remote || '';
+            const extraRemotes = Array.isArray(rule.extraRemotes) ? rule.extraRemotes : [];
+            const balance = rule.balance || '';
 
             if (!listen || !remote) return;
 
             const listenParts = splitHostPort(listen);
-            const remoteParts = splitHostPort(remote);
             const localPort = listenParts?.port || listen;
-            const remoteIP = remoteParts?.host || remote;
-            const remotePort = remoteParts?.port || '-';
 
             const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${index + 1}</td>
-                <td>${localPort}</td>
-                <td>${remoteIP}</td>
-                <td>${remotePort}</td>
-                <td><button class="delete-btn" data-listen="${listen}">删除</button></td>
-            `;
+            const values = [
+                (currentPage - 1) * pageSize + index + 1,
+                localPort,
+                [remote, ...extraRemotes].join('\n'),
+                formatBalance(balance, extraRemotes.length + 1)
+            ];
+            values.forEach((value, cellIndex) => {
+                const cell = document.createElement('td');
+                cell.textContent = value;
+                if (cellIndex === 2) {
+                    cell.className = 'remote-list';
+                }
+                row.appendChild(cell);
+            });
+
+            const actionCell = document.createElement('td');
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'delete-btn';
+            deleteButton.dataset.listen = listen;
+            deleteButton.textContent = '删除';
+            actionCell.appendChild(deleteButton);
+            row.appendChild(actionCell);
             tbody.appendChild(row);
         });
 
@@ -155,6 +174,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         updatePaginationInfo();
+    }
+
+    function formatBalance(balance, backendCount) {
+        if (!balance) {
+            return backendCount > 1 ? '未设置' : '单节点';
+        }
+
+        const colonIndex = balance.indexOf(':');
+        const strategy = colonIndex === -1 ? balance : balance.slice(0, colonIndex).trim();
+        const weights = colonIndex === -1 ? '' : balance.slice(colonIndex + 1).trim();
+        const strategyLabel = strategy === 'roundrobin' ? '轮询' : strategy === 'iphash' ? '来源 IP 固定' : strategy;
+        return weights ? `${strategyLabel}\n权重 ${weights}` : strategyLabel;
+    }
+
+    function formatHostPort(host, port) {
+        const trimmedHost = host.trim();
+        if (trimmedHost.startsWith('[') && trimmedHost.endsWith(']')) {
+            return `${trimmedHost}:${port}`;
+        }
+        if (trimmedHost.includes(':')) {
+            return `[${trimmedHost}]:${port}`;
+        }
+        return `${trimmedHost}:${port}`;
+    }
+
+    function updateBalanceFields() {
+        const hasExtraRemotes = extraRemotesInput.value.trim().length > 0;
+        balanceStrategyInput.disabled = !hasExtraRemotes;
+        balanceWeightsInput.disabled = !hasExtraRemotes;
     }
 
     function updatePaginationInfo() {
@@ -211,6 +259,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const localPort = localPortInput.value.trim();
         const remoteIP = remoteIPInput.value.trim();
         const remotePort = remotePortInput.value.trim();
+        const extraRemotes = extraRemotesInput.value
+            .split('\n')
+            .map(value => value.trim())
+            .filter(Boolean);
 
         if (!localPort || !remoteIP || !remotePort) {
             outputDiv.textContent = '请填写所有字段';
@@ -224,6 +276,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            const backendCount = 1 + extraRemotes.length;
+            let balance = '';
+            if (extraRemotes.length > 0) {
+                let weights;
+                if (balanceWeightsInput.value.trim()) {
+                    weights = balanceWeightsInput.value.split(',').map(value => value.trim());
+                    if (weights.length !== backendCount || weights.some(value => !/^\d+$/.test(value) || Number(value) < 1)) {
+                        outputDiv.textContent = `权重必须填写 ${backendCount} 个大于 0 的整数`;
+                        return;
+                    }
+                } else {
+                    weights = Array(backendCount).fill('1');
+                }
+                balance = `${balanceStrategyInput.value}: ${weights.join(', ')}`;
+            }
+
             const response = await fetch('/add_rule', {
                 method: 'POST',
                 headers: {
@@ -231,12 +299,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 body: JSON.stringify({
                     listen: `[::]:${localPort}`,
-                    remote: `${remoteIP}:${remotePort}`
+                    remote: formatHostPort(remoteIP, remotePort),
+                    extra_remotes: extraRemotes,
+                    balance
                 })
             });
 
             if (!response.ok) {
-                throw new Error('添加规则失败：' + response.statusText);
+                let detail = response.statusText;
+                try {
+                    const errorData = await response.json();
+                    detail = errorData.error || detail;
+                } catch (_) {
+                    // 保留 HTTP 状态文本。
+                }
+                throw new Error('添加规则失败：' + detail);
             }
 
             const restartResponse = await fetch('/restart_service', {
@@ -250,6 +327,10 @@ document.addEventListener('DOMContentLoaded', () => {
             localPortInput.value = '';
             remoteIPInput.value = '';
             remotePortInput.value = '';
+            extraRemotesInput.value = '';
+            balanceWeightsInput.value = '';
+            balanceStrategyInput.value = 'roundrobin';
+            updateBalanceFields();
             totalRules += 1;
             await refreshRulesAfterChange();
             await updateServiceStatus();
@@ -402,6 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     addRuleButton.addEventListener('click', addRule);
     addBatchRulesButton.addEventListener('click', addBatchRules);
+    extraRemotesInput.addEventListener('input', updateBalanceFields);
 
     document.getElementById('prevPage').addEventListener('click', goToPrevPage);
     document.getElementById('nextPage').addEventListener('click', goToNextPage);
@@ -412,6 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchForwardingRules();
     });
 
+    updateBalanceFields();
     fetchForwardingRules();
     updateServiceStatus();
     

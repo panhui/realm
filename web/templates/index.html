@@ -62,11 +62,29 @@
             display: block;
             margin-bottom: 5px;
         }
-        .form-group input, .form-group textarea {
+        .form-group input, .form-group textarea, .form-group select {
             width: calc(100% - 22px);
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 5px;
+            background-color: #fff;
+        }
+        .form-group select {
+            width: 100%;
+        }
+        .form-group input:disabled, .form-group select:disabled {
+            background-color: #eee;
+            color: #777;
+        }
+        .form-hint {
+            display: block;
+            margin-top: 6px;
+            color: #666;
+            font-size: 13px;
+        }
+        .remote-list {
+            white-space: pre-line;
+            word-break: break-all;
         }
         #output {
             margin-top: 20px;
@@ -181,8 +199,8 @@
                 <tr>
                     <th>序号</th>
                     <th>中转端口</th>
-                    <th>落地机 IP</th>
-                    <th>目标端口</th>
+                    <th>远端节点</th>
+                    <th>负载均衡</th>
                     <th>操作</th>
                 </tr>
             </thead>
@@ -197,18 +215,35 @@
             <input type="number" id="localPort" required>
         </div>
         <div class="form-group">
-            <label for="remoteIP">落地机 IP:</label>
-            <input type="text" id="remoteIP" required>
+            <label for="remoteIP">主远端 IP/域名:</label>
+            <input type="text" id="remoteIP" placeholder="例如：10.0.0.11" required>
         </div>
         <div class="form-group">
             <label for="remotePort">目标端口:</label>
             <input type="number" id="remotePort" required>
         </div>
+        <div class="form-group">
+            <label for="extraRemotes">额外远端:</label>
+            <textarea id="extraRemotes" rows="4" placeholder="每行一个完整地址，例如：&#10;10.0.0.12:443&#10;[2001:db8::13]:443"></textarea>
+            <span class="form-hint">每行填写一个 IP/域名和端口；留空时创建普通单远端规则。</span>
+        </div>
+        <div class="form-group">
+            <label for="balanceStrategy">负载均衡策略:</label>
+            <select id="balanceStrategy">
+                <option value="roundrobin" selected>轮询（roundrobin）</option>
+                <option value="iphash">来源 IP 固定（iphash）</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="balanceWeights">节点权重:</label>
+            <input type="text" id="balanceWeights" placeholder="例如：1, 1, 1（留空则全部为 1）">
+            <span class="form-hint">按“主远端、额外远端”的顺序填写，数量必须与节点数量一致。</span>
+        </div>
         <button id="addRuleButton">添加规则</button>
 
         <h2>批量添加转发规则</h2>
         <div class="form-group">
-            <label for="rulesInput">请输入转发规则（每行一个规则）：</label>
+            <label for="rulesInput">请输入单远端转发规则（每行一个规则）：</label>
             <p>IPv4 格式：中转端口:落地机IP:目标端口</p>
             <p>IPv6 格式：中转端口:[落地机IPv6]:目标端口</p>
             <textarea id="rulesInput" rows="5"></textarea>
