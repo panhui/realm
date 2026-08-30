@@ -1,14 +1,15 @@
 #!/bin/bash
 
 # ==========================================
-# Realm 一键转发脚本 v3.4.3
+# Realm 一键转发脚本 v3.4.4
 # 更新日志:
-# 1. 面板默认每页显示规则数调整为 100 条
+# 1. 安装 Realm 时先验证二进制是否能在当前系统运行
+# 2. Debian glibc 版本过低时自动回退到 musl 静态版本
 # ==========================================
 
 # --- 基础配置 ---
-sh_ver="3.4.3"
-panel_ver="v3.4.3"
+sh_ver="3.4.4"
+panel_ver="v3.4.4"
 
 # 颜色定义
 RED="\033[31m"
@@ -419,9 +420,56 @@ install_realm() {
         return 1
     fi
 
-    wget -O "/tmp/realm.tar.gz" "https://github.com/zhboner/realm/releases/download/${version}/${filename}" || { echo -e "${RED}下载失败${PLAIN}"; return 1; }
-    tar -xvf /tmp/realm.tar.gz -C "$REALM_DIR" && rm -f /tmp/realm.tar.gz
+    local realm_install_dir
+    realm_install_dir=$(mktemp -d /tmp/realm_install.XXXXXX) || return 1
+    local realm_archive="${realm_install_dir}/realm.tar.gz"
+    local realm_candidate
+    local realm_check_output
+
+    if ! wget -O "$realm_archive" "https://github.com/zhboner/realm/releases/download/${version}/${filename}"; then
+        echo -e "${RED}下载失败${PLAIN}"
+        rm -rf "$realm_install_dir"
+        return 1
+    fi
+    if ! tar -xzf "$realm_archive" -C "$realm_install_dir"; then
+        echo -e "${RED}解压失败${PLAIN}"
+        rm -rf "$realm_install_dir"
+        return 1
+    fi
+    realm_candidate=$(find "$realm_install_dir" -type f -name realm | head -1)
+    [ -z "$realm_candidate" ] && { echo -e "${RED}安装包内未找到 Realm 程序${PLAIN}"; rm -rf "$realm_install_dir"; return 1; }
+    chmod +x "$realm_candidate"
+
+    if ! realm_check_output=$("$realm_candidate" --version 2>&1); then
+        if [[ "$filename" == *"linux-gnu.tar.gz" ]] && grep -q "GLIBC_" <<< "$realm_check_output"; then
+            echo -e "${YELLOW}系统 glibc 版本较旧，自动切换到 musl 静态版本...${PLAIN}"
+            filename=${filename/linux-gnu.tar.gz/linux-musl.tar.gz}
+            rm -f "$realm_archive" "$realm_candidate"
+            if ! wget -O "$realm_archive" "https://github.com/zhboner/realm/releases/download/${version}/${filename}" || \
+               ! tar -xzf "$realm_archive" -C "$realm_install_dir"; then
+                echo -e "${RED}musl 版本下载或解压失败${PLAIN}"
+                rm -rf "$realm_install_dir"
+                return 1
+            fi
+            realm_candidate=$(find "$realm_install_dir" -type f -name realm | head -1)
+            [ -z "$realm_candidate" ] && { echo -e "${RED}musl 安装包内未找到 Realm 程序${PLAIN}"; rm -rf "$realm_install_dir"; return 1; }
+            chmod +x "$realm_candidate"
+            if ! realm_check_output=$("$realm_candidate" --version 2>&1); then
+                echo -e "${RED}musl 版本仍无法运行: ${realm_check_output}${PLAIN}"
+                rm -rf "$realm_install_dir"
+                return 1
+            fi
+        else
+            echo -e "${RED}Realm 程序无法运行: ${realm_check_output}${PLAIN}"
+            rm -rf "$realm_install_dir"
+            return 1
+        fi
+    fi
+
+    service_stop realm >/dev/null 2>&1 || true
+    cp "$realm_candidate" "$REALM_BIN"
     chmod +x "$REALM_BIN"
+    rm -rf "$realm_install_dir"
 
     write_realm_service || return 1
     service_daemon_reload
