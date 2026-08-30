@@ -98,6 +98,13 @@ func saveConfigLocked() error {
 	var buf bytes.Buffer
 	encoder := toml.NewEncoder(&buf)
 
+	// Realm 2.9.5 requires the top-level endpoints field even when there are
+	// no forwarding rules. It must be written before [network] so TOML keeps
+	// it at the document root.
+	if len(config.Endpoints) == 0 {
+		buf.WriteString("endpoints = []\n\n")
+	}
+
 	if err := encoder.Encode(map[string]any{"network": config.Network}); err != nil {
 		return err
 	}

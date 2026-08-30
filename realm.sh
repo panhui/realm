@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # ==========================================
-# Realm 一键转发脚本 v3.4.4
+# Realm 一键转发脚本 v3.4.5
 # 更新日志:
-# 1. 安装 Realm 时先验证二进制是否能在当前系统运行
-# 2. Debian glibc 版本过低时自动回退到 musl 静态版本
+# 1. 修复 Realm 2.9.5 无转发规则时因缺少 endpoints 无法启动
+# 2. 面板或脚本删除最后一条规则后写入合法的空规则配置
 # ==========================================
 
 # --- 基础配置 ---
-sh_ver="3.4.4"
-panel_ver="v3.4.4"
+sh_ver="3.4.5"
+panel_ver="v3.4.5"
 
 # 颜色定义
 RED="\033[31m"
@@ -217,11 +217,19 @@ init_env() {
 
 write_config_header() {
     cat <<EOF > "$CONFIG_FILE"
+endpoints = []
+
 [network]
 no_tcp = false
 use_udp = true
 
 EOF
+}
+
+prepare_config_for_endpoint_append() {
+    # endpoints = [] 只用于空配置；添加第一条规则前必须移除，
+    # 否则会与后面的 [[endpoints]] 重复定义。
+    sed -i '/^[[:space:]]*endpoints[[:space:]]*=[[:space:]]*\[\][[:space:]]*$/d' "$CONFIG_FILE"
 }
 
 add_package() {
@@ -538,6 +546,7 @@ add_forward() {
         break
     done
 
+    prepare_config_for_endpoint_append
     cat <<EOF >> "$CONFIG_FILE"
 
 [[endpoints]]
@@ -559,6 +568,7 @@ add_range_forward() {
     [ "$sp" -ge "$ep" ] && { echo -e "${RED}起始必须小于结束${PLAIN}"; return; }
 
     echo "生成中..."
+    prepare_config_for_endpoint_append
     local rp=$rbp
     for ((p=$sp; p<=$ep; p++)); do
         if ! grep -Fq "listen = \"[::]:$p\"" "$CONFIG_FILE"; then
@@ -603,6 +613,15 @@ delete_forward() {
         }
         { if (!skipping) print }
     ' "${CONFIG_FILE}.bak" > "$CONFIG_FILE"
+    if ! grep -q '^\[\[endpoints\]\][[:space:]]*$' "$CONFIG_FILE"; then
+        local empty_config_tmp="${CONFIG_FILE}.empty.$$"
+        {
+            echo 'endpoints = []'
+            echo
+            cat "$CONFIG_FILE"
+        } > "$empty_config_tmp"
+        mv "$empty_config_tmp" "$CONFIG_FILE"
+    fi
     restart_service
 }
 

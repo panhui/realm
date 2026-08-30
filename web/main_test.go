@@ -201,6 +201,38 @@ func TestSaveConfigOmitsEmptyLoadBalancingFields(t *testing.T) {
 	}
 }
 
+func TestSaveEmptyConfigWritesTopLevelEndpoints(t *testing.T) {
+	originalPath := realmConfigPath
+	originalConfig := config
+	t.Cleanup(func() {
+		realmConfigPath = originalPath
+		config = originalConfig
+	})
+
+	realmConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	config = Config{}
+	config.Network.UseUDP = true
+
+	if err := SaveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(realmConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(contents), "endpoints = []\n") {
+		t.Fatalf("empty config is missing top-level endpoints:\n%s", contents)
+	}
+
+	config = Config{}
+	if err := LoadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if config.Endpoints == nil || len(config.Endpoints) != 0 {
+		t.Fatalf("expected a non-nil empty endpoints list, got %#v", config.Endpoints)
+	}
+}
+
 func TestUpdateForwardingRuleLocked(t *testing.T) {
 	originalPath := realmConfigPath
 	originalConfig := config
