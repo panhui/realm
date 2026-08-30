@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # ==========================================
-# Realm 一键转发脚本 v3.4.5
+# Realm 一键转发脚本 v3.4.6
 # 更新日志:
 # 1. 修复 Realm 2.9.5 无转发规则时因缺少 endpoints 无法启动
-# 2. 面板或脚本删除最后一条规则后写入合法的空规则配置
+# 2. 自动修复已有的缺少 endpoints 的空配置
 # ==========================================
 
 # --- 基础配置 ---
-sh_ver="3.4.5"
-panel_ver="v3.4.5"
+sh_ver="3.4.6"
+panel_ver="v3.4.6"
 
 # 颜色定义
 RED="\033[31m"
@@ -213,6 +213,7 @@ init_env() {
     mkdir -p "$REALM_DIR"
     mkdir -p "$CONFIG_DIR"
     [ ! -f "$CONFIG_FILE" ] && write_config_header
+    ensure_endpoints_field
 }
 
 write_config_header() {
@@ -230,6 +231,21 @@ prepare_config_for_endpoint_append() {
     # endpoints = [] 只用于空配置；添加第一条规则前必须移除，
     # 否则会与后面的 [[endpoints]] 重复定义。
     sed -i '/^[[:space:]]*endpoints[[:space:]]*=[[:space:]]*\[\][[:space:]]*$/d' "$CONFIG_FILE"
+}
+
+ensure_endpoints_field() {
+    if grep -qE '^([[:space:]]*endpoints[[:space:]]*=|[[:space:]]*\[\[endpoints\]\])' "$CONFIG_FILE"; then
+        return
+    fi
+
+    local repaired_config="${CONFIG_FILE}.repair.$$"
+    {
+        echo 'endpoints = []'
+        echo
+        cat "$CONFIG_FILE"
+    } > "$repaired_config"
+    mv "$repaired_config" "$CONFIG_FILE"
+    echo -e "${YELLOW}已修复缺少 endpoints 的空 Realm 配置。${PLAIN}"
 }
 
 add_package() {
