@@ -4,7 +4,7 @@
 
 本脚本在原教程基础上增加了 Realm 安装、转发规则管理、服务重启、脚本更新和可视化面板管理功能。
 
-## v3.4.6 更新重点
+## v3.5.0 更新重点
 
 - 一个监听端口可以配置主远端和多个额外远端。
 - 支持 `roundrobin` 轮询和 `iphash` 来源 IP 固定策略。
@@ -19,12 +19,13 @@
 - Debian glibc 版本过旧时，安装脚本会自动改用 Realm musl 静态版本。
 - 修复 Realm 2.9.5 在没有转发规则时因缺少 `endpoints` 字段而无法启动的问题。
 - 安装或重置 Realm 时会自动修复已有的空配置，无需手工编辑 TOML。
+- 添加、批量添加和编辑转发规则均改为弹窗操作，页面顶部提供两个添加入口。
 
 ## 脚本界面预览
 
 ```text
 ################################################
-#        Realm 一键转发脚本 (v3.4.6)         #
+#        Realm 一键转发脚本 (v3.5.0)         #
 ################################################
  Realm 状态: 运行中
  面板 状态: 已安装但未启动
@@ -52,7 +53,7 @@
 ### Debian / Ubuntu / CentOS
 
 ```bash
-curl -L https://github.com/panhui/realm/releases/download/v3.4.6/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -L https://github.com/panhui/realm/releases/download/v3.5.0/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 或使用主分支最新版：
@@ -123,7 +124,7 @@ balance = "roundrobin: 2, 1, 1"
 
 轮询以新连接为单位；已经建立的 TCP 连接不会在多个远端之间切换。
 
-规则创建后，可以在规则列表中点击“编辑”。面板会把原规则带入表单，保存时检查监听端口冲突并重启 Realm；点击“取消编辑”可放弃修改。
+规则创建后，可以在规则列表中点击“编辑”。面板会在弹窗中加载原规则，保存时检查监听端口冲突并重启 Realm；关闭弹窗或点击“取消”可放弃修改。
 
 ## 可视化面板配置
 

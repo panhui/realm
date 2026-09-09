@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     const outputDiv = document.getElementById('output');
+    const openAddRuleButton = document.getElementById('openAddRuleButton');
+    const openBatchRulesButton = document.getElementById('openBatchRulesButton');
     const startButton = document.getElementById('startButton');
     const stopButton = document.getElementById('stopButton');
     const restartButton = document.getElementById('restartButton');
@@ -15,6 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const balanceStrategyInput = document.getElementById('balanceStrategy');
     const balanceWeightsInput = document.getElementById('balanceWeights');
     const rulesInput = document.getElementById('rulesInput');
+    const ruleModal = document.getElementById('ruleModal');
+    const batchRulesModal = document.getElementById('batchRulesModal');
+    const closeRuleModalButton = document.getElementById('closeRuleModalButton');
+    const closeBatchModalButton = document.getElementById('closeBatchModalButton');
+    const cancelBatchButton = document.getElementById('cancelBatchButton');
+    const ruleModalMessage = document.getElementById('ruleModalMessage');
+    const batchModalMessage = document.getElementById('batchModalMessage');
 
     let allRules = [];
     let currentPage = 1;
@@ -224,6 +233,36 @@ document.addEventListener('DOMContentLoaded', () => {
         balanceWeightsInput.disabled = !hasExtraRemotes;
     }
 
+    function showModalMessage(element, message = '') {
+        element.textContent = message;
+        element.hidden = !message;
+    }
+
+    function openModal(modal, focusElement) {
+        modal.hidden = false;
+        document.body.classList.add('modal-open');
+        if (focusElement) {
+            requestAnimationFrame(() => focusElement.focus());
+        }
+    }
+
+    function closeModal(modal) {
+        modal.hidden = true;
+        if (ruleModal.hidden && batchRulesModal.hidden) {
+            document.body.classList.remove('modal-open');
+        }
+    }
+
+    function closeRuleModal() {
+        closeModal(ruleModal);
+        resetRuleForm();
+    }
+
+    function closeBatchModal() {
+        closeModal(batchRulesModal);
+        showModalMessage(batchModalMessage);
+    }
+
     function beginEdit(rule) {
         const listenParts = splitHostPort(rule.listen);
         const remoteParts = splitHostPort(rule.remote);
@@ -254,9 +293,8 @@ document.addEventListener('DOMContentLoaded', () => {
         updateBalanceFields();
         ruleFormTitle.textContent = '编辑转发规则';
         addRuleButton.textContent = '保存修改';
-        cancelEditButton.hidden = false;
-        ruleFormTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        localPortInput.focus({ preventScroll: true });
+        showModalMessage(ruleModalMessage);
+        openModal(ruleModal, localPortInput);
     }
 
     function resetRuleForm() {
@@ -269,7 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
         balanceStrategyInput.value = 'roundrobin';
         ruleFormTitle.textContent = '添加转发规则';
         addRuleButton.textContent = '添加规则';
-        cancelEditButton.hidden = true;
+        showModalMessage(ruleModalMessage);
         updateBalanceFields();
     }
 
@@ -336,7 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .filter(Boolean);
 
         if (!localPort || !remoteIP || !remotePort) {
-            outputDiv.textContent = '请填写所有字段';
+            showModalMessage(ruleModalMessage, '请填写所有必填字段');
             return;
         }
 
@@ -346,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return rule.listen !== editingListen && rulePort === localPort;
             });
             if (portIsUsed) {
-                outputDiv.textContent = `端口 ${localPort} 已被占用`;
+                showModalMessage(ruleModalMessage, `端口 ${localPort} 已被占用`);
                 return;
             }
 
@@ -357,7 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (balanceWeightsInput.value.trim()) {
                     weights = balanceWeightsInput.value.split(',').map(value => value.trim());
                     if (weights.length !== backendCount || weights.some(value => !/^\d+$/.test(value) || Number(value) < 1)) {
-                        outputDiv.textContent = `权重必须填写 ${backendCount} 个大于 0 的整数`;
+                        showModalMessage(ruleModalMessage, `权重必须填写 ${backendCount} 个大于 0 的整数`);
                         return;
                     }
                 } else {
@@ -402,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             outputDiv.textContent = `规则${isEditing ? '修改' : '添加'}成功，服务已重启`;
-            resetRuleForm();
+            closeRuleModal();
             if (isEditing) {
                 await fetchForwardingRules(currentPage);
             } else {
@@ -412,14 +450,14 @@ document.addEventListener('DOMContentLoaded', () => {
             await updateServiceStatus();
         } catch (error) {
             console.error('添加失败:', error);
-            outputDiv.textContent = error.message;
+            showModalMessage(ruleModalMessage, error.message);
         }
     }
 
     async function addBatchRules() {
         const rules = rulesInput.value.trim().split('\n').filter(Boolean);
         if (rules.length === 0) {
-            outputDiv.textContent = '请输入要添加的规则';
+            showModalMessage(batchModalMessage, '请输入要添加的规则');
             return;
         }
 
@@ -479,7 +517,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        rulesInput.value = '';
         if (hasSuccess) {
             totalRules += rules.length - failedRules.length;
         }
@@ -487,9 +524,11 @@ document.addEventListener('DOMContentLoaded', () => {
         await updateServiceStatus();
 
         if (failedRules.length > 0) {
-            outputDiv.textContent = `添加完成。\n失败的规则：\n${failedRules.join('\n')}`;
+            showModalMessage(batchModalMessage, `添加完成。\n失败的规则：\n${failedRules.join('\n')}`);
         } else {
             outputDiv.textContent = '所有规则添加成功，服务已重启';
+            rulesInput.value = '';
+            closeBatchModal();
         }
     }
 
@@ -557,13 +596,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    addRuleButton.addEventListener('click', addRule);
-    cancelEditButton.addEventListener('click', () => {
+    openAddRuleButton.addEventListener('click', () => {
         resetRuleForm();
-        outputDiv.textContent = '已取消编辑';
+        openModal(ruleModal, localPortInput);
     });
+    openBatchRulesButton.addEventListener('click', () => {
+        showModalMessage(batchModalMessage);
+        openModal(batchRulesModal, rulesInput);
+    });
+    addRuleButton.addEventListener('click', addRule);
+    cancelEditButton.addEventListener('click', closeRuleModal);
     addBatchRulesButton.addEventListener('click', addBatchRules);
+    closeRuleModalButton.addEventListener('click', closeRuleModal);
+    closeBatchModalButton.addEventListener('click', closeBatchModal);
+    cancelBatchButton.addEventListener('click', closeBatchModal);
     extraRemotesInput.addEventListener('input', updateBalanceFields);
+
+    [ruleModal, batchRulesModal].forEach(modal => {
+        modal.addEventListener('click', event => {
+            if (event.target === modal) {
+                if (modal === ruleModal) {
+                    closeRuleModal();
+                } else {
+                    closeBatchModal();
+                }
+            }
+        });
+    });
+
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        if (!ruleModal.hidden) {
+            closeRuleModal();
+        } else if (!batchRulesModal.hidden) {
+            closeBatchModal();
+        }
+    });
 
     document.getElementById('prevPage').addEventListener('click', goToPrevPage);
     document.getElementById('nextPage').addEventListener('click', goToNextPage);
