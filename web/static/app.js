@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const rulesInput = document.getElementById('rulesInput');
     const ruleModal = document.getElementById('ruleModal');
     const batchRulesModal = document.getElementById('batchRulesModal');
+    const selectAllRules = document.getElementById('selectAllRules');
+    const deleteSelectedButton = document.getElementById('deleteSelectedButton');
+    const selectedCount = document.getElementById('selectedCount');
     const closeRuleModalButton = document.getElementById('closeRuleModalButton');
     const closeBatchModalButton = document.getElementById('closeBatchModalButton');
     const cancelBatchButton = document.getElementById('cancelBatchButton');
@@ -30,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pageSize = 100;
     let totalRules = 0;
     let editingListen = null;
+    const selectedRules = new Set();
 
     const pageSizeSelect = document.getElementById('pageSizeSelect');
 
@@ -139,8 +143,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderForwardingRules() {
+        const table = document.getElementById('forwardingTable');
         const tbody = document.querySelector('#forwardingTable tbody');
         tbody.innerHTML = '';
+        table.classList.toggle('empty-table', allRules.length === 0);
+
+        if (allRules.length === 0) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 6;
+            cell.className = 'empty-state';
+            cell.textContent = '暂无转发规则';
+            row.appendChild(cell);
+            tbody.appendChild(row);
+        }
 
         allRules.forEach((rule, index) => {
             const listen = rule.listen || '';
@@ -154,15 +170,37 @@ document.addEventListener('DOMContentLoaded', () => {
             const localPort = listenParts?.port || listen;
 
             const row = document.createElement('tr');
+            const selectCell = document.createElement('td');
+            selectCell.className = 'checkbox-cell';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'rule-select';
+            checkbox.checked = selectedRules.has(listen);
+            checkbox.setAttribute('aria-label', `选择端口 ${localPort}`);
+            row.classList.toggle('selected-row', checkbox.checked);
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    selectedRules.add(listen);
+                } else {
+                    selectedRules.delete(listen);
+                }
+                row.classList.toggle('selected-row', checkbox.checked);
+                updateSelectionControls();
+            });
+            selectCell.appendChild(checkbox);
+            row.appendChild(selectCell);
+
             const values = [
                 (currentPage - 1) * pageSize + index + 1,
                 localPort,
                 [remote, ...extraRemotes].join('\n'),
                 formatBalance(balance, extraRemotes.length + 1)
             ];
+            const labels = ['序号', '中转端口', '远端节点', '负载均衡'];
             values.forEach((value, cellIndex) => {
                 const cell = document.createElement('td');
                 cell.textContent = value;
+                cell.dataset.label = labels[cellIndex];
                 if (cellIndex === 2) {
                     cell.className = 'remote-list';
                 }
@@ -170,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const actionCell = document.createElement('td');
+            actionCell.className = 'table-actions';
             const editButton = document.createElement('button');
             editButton.className = 'edit-btn';
             editButton.textContent = '编辑';
@@ -192,6 +231,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         updatePaginationInfo();
+        updateSelectionControls();
+    }
+
+    function updateSelectionControls() {
+        const visibleListens = allRules.map(rule => rule.listen).filter(Boolean);
+        const selectedVisibleCount = visibleListens.filter(listen => selectedRules.has(listen)).length;
+
+        selectAllRules.checked = visibleListens.length > 0 && selectedVisibleCount === visibleListens.length;
+        selectAllRules.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleListens.length;
+        selectAllRules.disabled = visibleListens.length === 0;
+        selectedCount.textContent = `已选 ${selectedRules.size} 条`;
+        deleteSelectedButton.disabled = selectedRules.size === 0;
     }
 
     function formatBalance(balance, backendCount) {
@@ -345,22 +396,78 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('删除规则失败：' + response.statusText);
             }
 
+            selectedRules.delete(listenAddress);
+            if (editingListen === listenAddress) {
+                resetRuleForm();
+            }
+            totalRules = Math.max(0, totalRules - 1);
+            const targetPage = Math.min(currentPage, Math.max(1, Math.ceil(totalRules / pageSize)));
+            await fetchForwardingRules(targetPage);
+
             const restartResponse = await fetch('/restart_service', {
                 method: 'POST'
             });
             if (!restartResponse.ok) {
-                throw new Error('重启服务失败：' + restartResponse.statusText);
+                throw new Error('规则已删除，但重启服务失败：' + restartResponse.statusText);
             }
 
-            outputDiv.textContent = '规则已删除，服务已重启';
-            if (editingListen === listenAddress) {
-                resetRuleForm();
-            }
-            await refreshRulesAfterChange();
             await updateServiceStatus();
+            outputDiv.textContent = '规则已删除，服务已重启';
         } catch (error) {
             console.error('删除失败:', error);
             outputDiv.textContent = error.message;
+        }
+    }
+
+    async function deleteSelectedRules() {
+        const listens = Array.from(selectedRules);
+        if (listens.length === 0) {
+            return;
+        }
+
+        if (!window.confirm(`确定删除选中的 ${listens.length} 条规则吗？`)) {
+            return;
+        }
+
+        deleteSelectedButton.disabled = true;
+        try {
+            const response = await fetch('/delete_rules', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ listens })
+            });
+
+            if (!response.ok) {
+                let detail = response.statusText;
+                try {
+                    const errorData = await response.json();
+                    detail = errorData.error || detail;
+                } catch (_) {
+                    // 保留 HTTP 状态文本。
+                }
+                throw new Error('批量删除失败：' + detail);
+            }
+
+            const result = await response.json();
+            const deleted = Number(result.deleted) || listens.length;
+            selectedRules.clear();
+            totalRules = Math.max(0, totalRules - deleted);
+            const targetPage = Math.min(currentPage, Math.max(1, Math.ceil(totalRules / pageSize)));
+            await fetchForwardingRules(targetPage);
+
+            const restartResponse = await fetch('/restart_service', { method: 'POST' });
+            if (!restartResponse.ok) {
+                throw new Error('规则已删除，但重启服务失败：' + restartResponse.statusText);
+            }
+
+            await updateServiceStatus();
+            outputDiv.textContent = `已删除 ${deleted} 条规则，服务已重启`;
+        } catch (error) {
+            console.error('批量删除失败:', error);
+            outputDiv.textContent = error.message;
+            updateSelectionControls();
         }
     }
 
@@ -611,6 +718,18 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBatchModalButton.addEventListener('click', closeBatchModal);
     cancelBatchButton.addEventListener('click', closeBatchModal);
     extraRemotesInput.addEventListener('input', updateBalanceFields);
+    deleteSelectedButton.addEventListener('click', deleteSelectedRules);
+    selectAllRules.addEventListener('change', () => {
+        allRules.forEach(rule => {
+            if (!rule.listen) return;
+            if (selectAllRules.checked) {
+                selectedRules.add(rule.listen);
+            } else {
+                selectedRules.delete(rule.listen);
+            }
+        });
+        renderForwardingRules();
+    });
 
     [ruleModal, batchRulesModal].forEach(modal => {
         modal.addEventListener('click', event => {

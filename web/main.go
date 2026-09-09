@@ -229,6 +229,42 @@ func updateForwardingRuleLocked(originalListen string, input ForwardingRule) err
 	return nil
 }
 
+// deleteForwardingRulesLocked removes all matching rules and persists once.
+// Caller must hold mu.
+func deleteForwardingRulesLocked(listens []string) (int, error) {
+	targets := make(map[string]struct{}, len(listens))
+	for _, listen := range listens {
+		if listen != "" {
+			targets[listen] = struct{}{}
+		}
+	}
+	if len(targets) == 0 {
+		return 0, errRuleNotFound
+	}
+
+	originalRules := config.Endpoints
+	remaining := make([]ForwardingRule, 0, len(originalRules))
+	deleted := 0
+	for _, rule := range originalRules {
+		if _, remove := targets[rule.Listen]; remove {
+			deleted++
+			continue
+		}
+		remaining = append(remaining, rule)
+	}
+	if deleted == 0 {
+		return 0, errRuleNotFound
+	}
+
+	config.Endpoints = remaining
+	if err := saveConfigLocked(); err != nil {
+		config.Endpoints = originalRules
+		return 0, err
+	}
+
+	return deleted, nil
+}
+
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
@@ -462,29 +498,41 @@ func main() {
 			}
 
 			mu.Lock()
-			found := false
-			for i, rule := range config.Endpoints {
-				if rule.Listen == listen {
-					config.Endpoints = append(config.Endpoints[:i], config.Endpoints[i+1:]...)
-					found = true
-					break
-				}
-			}
-			var saveErr error
-			if found {
-				saveErr = saveConfigLocked()
-			}
+			_, err := deleteForwardingRulesLocked([]string{listen})
 			mu.Unlock()
 
-			if saveErr != nil {
+			if err != nil && !errors.Is(err, errRuleNotFound) {
 				c.JSON(500, gin.H{"error": "保存转发规则失败"})
 				return
 			}
 
-			if found {
+			if err == nil {
 				c.JSON(200, gin.H{"message": "保存转发规则成功"})
 			} else {
 				c.JSON(404, gin.H{"error": "未找到转发规则"})
+			}
+		})
+
+		authorized.DELETE("/delete_rules", func(c *gin.Context) {
+			var input struct {
+				Listens []string `json:"listens"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil || len(input.Listens) == 0 {
+				c.JSON(400, gin.H{"error": "请选择要删除的规则"})
+				return
+			}
+
+			mu.Lock()
+			deleted, err := deleteForwardingRulesLocked(input.Listens)
+			mu.Unlock()
+
+			switch {
+			case errors.Is(err, errRuleNotFound):
+				c.JSON(404, gin.H{"error": err.Error()})
+			case err != nil:
+				c.JSON(500, gin.H{"error": "保存转发规则失败"})
+			default:
+				c.JSON(200, gin.H{"message": "批量删除成功", "deleted": deleted})
 			}
 		})
 

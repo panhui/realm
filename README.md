@@ -4,7 +4,7 @@
 
 本脚本在原教程基础上增加了 Realm 安装、转发规则管理、服务重启、脚本更新和可视化面板管理功能。
 
-## v3.5.0 更新重点
+## v3.6.0 更新重点
 
 - 一个监听端口可以配置主远端和多个额外远端。
 - 支持 `roundrobin` 轮询和 `iphash` 来源 IP 固定策略。
@@ -20,12 +20,15 @@
 - 修复 Realm 2.9.5 在没有转发规则时因缺少 `endpoints` 字段而无法启动的问题。
 - 安装或重置 Realm 时会自动修复已有的空配置，无需手工编辑 TOML。
 - 添加、批量添加和编辑转发规则均改为弹窗操作，页面顶部提供两个添加入口。
+- 规则列表支持逐条勾选、当前页全选和跨页批量删除。
+- 批量删除只保存一次配置，并在完成后统一重启服务。
+- 面板升级为现代化卡片式布局，优化状态展示、表格、按钮和移动端体验。
 
 ## 脚本界面预览
 
 ```text
 ################################################
-#        Realm 一键转发脚本 (v3.5.0)         #
+#        Realm 一键转发脚本 (v3.6.0)         #
 ################################################
  Realm 状态: 运行中
  面板 状态: 已安装但未启动
@@ -53,7 +56,7 @@
 ### Debian / Ubuntu / CentOS
 
 ```bash
-curl -L https://github.com/panhui/realm/releases/download/v3.5.0/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -L https://github.com/panhui/realm/releases/download/v3.6.0/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 或使用主分支最新版：

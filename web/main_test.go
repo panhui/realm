@@ -295,3 +295,67 @@ func TestUpdateForwardingRuleLockedRejectsConflictAndMissingRule(t *testing.T) {
 		t.Fatalf("expected missing rule, got %v", err)
 	}
 }
+
+func TestDeleteForwardingRulesLocked(t *testing.T) {
+	originalPath := realmConfigPath
+	originalConfig := config
+	t.Cleanup(func() {
+		realmConfigPath = originalPath
+		config = originalConfig
+	})
+
+	realmConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	config = Config{
+		Endpoints: []ForwardingRule{
+			{Listen: "[::]:10000", Remote: "10.0.0.11:443"},
+			{Listen: "[::]:20000", Remote: "10.0.0.21:443"},
+			{Listen: "[::]:30000", Remote: "10.0.0.31:443"},
+		},
+	}
+
+	deleted, err := deleteForwardingRulesLocked([]string{"[::]:10000", "[::]:30000", "[::]:30000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 2 {
+		t.Fatalf("expected 2 deleted rules, got %d", deleted)
+	}
+	if len(config.Endpoints) != 1 || config.Endpoints[0].Listen != "[::]:20000" {
+		t.Fatalf("unexpected remaining rules: %#v", config.Endpoints)
+	}
+
+	config = Config{}
+	if err := LoadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Endpoints) != 1 || config.Endpoints[0].Listen != "[::]:20000" {
+		t.Fatalf("deleted rules were not persisted: %#v", config.Endpoints)
+	}
+}
+
+func TestDeleteForwardingRulesLockedHandlesMissingAndAllRules(t *testing.T) {
+	originalPath := realmConfigPath
+	originalConfig := config
+	t.Cleanup(func() {
+		realmConfigPath = originalPath
+		config = originalConfig
+	})
+
+	realmConfigPath = filepath.Join(t.TempDir(), "config.toml")
+	config = Config{Endpoints: []ForwardingRule{{Listen: "[::]:10000", Remote: "10.0.0.11:443"}}}
+
+	if _, err := deleteForwardingRulesLocked([]string{"[::]:9999"}); !errors.Is(err, errRuleNotFound) {
+		t.Fatalf("expected missing rule error, got %v", err)
+	}
+	deleted, err := deleteForwardingRulesLocked([]string{"[::]:10000"})
+	if err != nil || deleted != 1 {
+		t.Fatalf("expected final rule deletion, got deleted=%d err=%v", deleted, err)
+	}
+	contents, err := os.ReadFile(realmConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(contents), "endpoints = []\n") {
+		t.Fatalf("deleting all rules did not write a valid empty config:\n%s", contents)
+	}
+}
