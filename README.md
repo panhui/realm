@@ -4,7 +4,10 @@
 
 本脚本在原教程基础上增加了 Realm 安装、转发规则管理、服务重启、脚本更新和可视化面板管理功能。
 
-## v3.6.1 更新重点
+## v3.6.2 更新重点
+
+- 删除服务控制标题和说明，将 Realm 服务运行状态移至服务操作栏。
+- 启动、停止、重启和退出登录按钮缩小，统一使用白色弱化样式。
 
 - 面板头部显示服务器活动网卡上的 IPv4 / IPv6 地址，优先显示公网地址。
 - 减少规则列表上下留白，加宽编辑、删除按钮，文字大小保持不变。
@@ -31,7 +34,7 @@
 
 ```text
 ################################################
-#        Realm 一键转发脚本 (v3.6.1)         #
+#        Realm 一键转发脚本 (v3.6.2)         #
 ################################################
  Realm 状态: 运行中
  面板 状态: 已安装但未启动
@@ -59,7 +62,7 @@
 ### Debian / Ubuntu / CentOS
 
 ```bash
-curl -L https://github.com/panhui/realm/releases/download/v3.6.1/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -L https://github.com/panhui/realm/releases/download/v3.6.2/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 或使用主分支最新版：

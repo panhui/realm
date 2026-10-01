@@ -137,11 +137,6 @@
             display: flex;
             align-items: center;
             gap: 9px;
-            padding: 8px 12px;
-            border: 1px solid var(--line);
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.8);
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
         }
         .status-label {
             color: var(--muted);
@@ -185,11 +180,11 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 18px;
-            padding: 18px 20px;
+            gap: 12px;
+            padding: 12px 20px;
             margin-bottom: 18px;
         }
-        .service-card h2, .section-header h2 {
+        .section-header h2 {
             margin-bottom: 4px;
             font-size: 18px;
         }
@@ -198,6 +193,26 @@
             align-items: center;
             gap: 9px;
             flex-wrap: wrap;
+        }
+        .service-card .button-group {
+            gap: 6px;
+        }
+        .service-button {
+            min-height: 30px;
+            padding: 5px 10px;
+            border-color: var(--line);
+            border-radius: 7px;
+            background: #fff;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .service-button:hover:not(:disabled) {
+            border-color: #cbd5e1;
+            background: #fff;
+            color: #475569;
+            box-shadow: none;
+            transform: none;
         }
         .btn-secondary, .edit-btn, .batch-btn {
             border-color: #bfdbfe;
@@ -507,8 +522,7 @@
                 text-align: center;
             }
             .status-wrapper {
-                align-self: stretch;
-                justify-content: center;
+                align-self: flex-start;
             }
             .service-card, .section-header {
                 padding: 16px;
@@ -651,24 +665,20 @@
                 </div>
             </div>
             <div class="header-info">
-                <div class="status-wrapper">
-                    <span class="status-label">Realm 服务</span>
-                    <span id="serviceStatus" class="status-tag">检查中...</span>
-                </div>
                 <div class="server-ip" aria-live="polite">本机 IP：<span id="serverIP">读取中...</span></div>
             </div>
         </header>
 
         <section class="card service-card">
-            <div>
-                <h2>服务控制</h2>
-                <p class="section-description">启动、停止或重新加载 Realm 转发服务</p>
+            <div class="status-wrapper" aria-live="polite">
+                <span class="status-label">Realm 服务</span>
+                <span id="serviceStatus" class="status-tag">检查中...</span>
             </div>
             <div class="button-group">
-                <button id="startButton">启动服务</button>
-                <button id="stopButton" class="btn-danger">停止服务</button>
-                <button id="restartButton" class="btn-secondary">重启服务</button>
-                <button id="logoutButton" class="btn-ghost">退出登录</button>
+                <button id="startButton" class="service-button" type="button">启动服务</button>
+                <button id="stopButton" class="service-button" type="button">停止服务</button>
+                <button id="restartButton" class="service-button" type="button">重启服务</button>
+                <button id="logoutButton" class="service-button" type="button">退出登录</button>
             </div>
         </section>
 
@@ -791,6 +801,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.6.1"></script>
+    <script src="/static/app.js?v=3.6.2"></script>
 </body>
 </html>
