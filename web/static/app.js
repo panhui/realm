@@ -37,6 +37,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const pageSizeSelect = document.getElementById('pageSizeSelect');
 
+    async function updateServerIP() {
+        const element = document.getElementById('serverIP');
+        try {
+            const response = await fetch('/server_info', { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('读取本机 IP 失败');
+            }
+            const data = await response.json();
+            const ips = Array.isArray(data.ips) ? data.ips : [];
+            element.textContent = ips.length ? ips.join(' · ') : '暂无可用地址';
+        } catch (error) {
+            element.textContent = '获取失败';
+            console.error('本机 IP 获取失败:', error);
+        }
+    }
+
     async function updateServiceStatus() {
         try {
             const response = await fetch(`/check_status?_=${Date.now()}`);
@@ -763,6 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateBalanceFields();
     fetchForwardingRules();
+    updateServerIP();
     updateServiceStatus();
     
     setInterval(updateServiceStatus, 15000);

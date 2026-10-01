@@ -115,6 +115,24 @@
             color: var(--muted);
             font-size: 14px;
         }
+        .header-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 9px;
+            max-width: 50%;
+            min-width: 0;
+        }
+        .server-ip {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.5;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+        #serverIP {
+            color: var(--ink);
+        }
         .status-wrapper {
             display: flex;
             align-items: center;
@@ -259,7 +277,7 @@
             min-width: 0;
         }
         th, td {
-            padding: 14px 16px;
+            padding: 8px 16px;
             border-bottom: 1px solid var(--line);
             text-align: left;
             vertical-align: middle;
@@ -299,17 +317,19 @@
             color: #334155;
             white-space: pre-line;
             word-break: break-all;
-            line-height: 1.65;
+            line-height: 1.45;
         }
         .table-actions {
-            display: flex;
-            gap: 6px;
             white-space: nowrap;
         }
         .table-actions button {
-            min-height: 34px;
-            padding: 6px 10px;
+            min-width: 72px;
+            min-height: 32px;
+            padding: 5px 18px;
             font-size: 13px;
+        }
+        .table-actions button + button {
+            margin-left: 6px;
         }
         .empty-state {
             padding: 42px 20px;
@@ -478,6 +498,14 @@
                 align-items: flex-start;
                 flex-direction: column;
             }
+            .header-info {
+                align-self: stretch;
+                align-items: stretch;
+                max-width: none;
+            }
+            .server-ip {
+                text-align: center;
+            }
             .status-wrapper {
                 align-self: stretch;
                 justify-content: center;
@@ -523,9 +551,9 @@
             tbody tr {
                 display: grid;
                 grid-template-columns: 28px minmax(0, 1fr);
-                gap: 5px 10px;
-                margin-bottom: 10px;
-                padding: 13px;
+                gap: 3px 10px;
+                margin-bottom: 8px;
+                padding: 10px;
                 border: 1px solid var(--line);
                 border-radius: 12px;
                 background: #fff;
@@ -538,7 +566,7 @@
                 grid-column: 2;
                 grid-template-columns: 82px minmax(0, 1fr);
                 gap: 8px;
-                padding: 4px 0;
+                padding: 2px 0;
                 border: 0;
                 font-size: 14px;
             }
@@ -567,6 +595,9 @@
             }
             tbody td.table-actions button {
                 flex: 1;
+            }
+            tbody td.table-actions button + button {
+                margin-left: 0;
             }
             .empty-table thead {
                 display: none;
@@ -619,9 +650,12 @@
                     <p class="subtitle">管理端口转发、远端节点与负载均衡</p>
                 </div>
             </div>
-            <div class="status-wrapper">
-                <span class="status-label">Realm 服务</span>
-                <span id="serviceStatus" class="status-tag">检查中...</span>
+            <div class="header-info">
+                <div class="status-wrapper">
+                    <span class="status-label">Realm 服务</span>
+                    <span id="serviceStatus" class="status-tag">检查中...</span>
+                </div>
+                <div class="server-ip" aria-live="polite">本机 IP：<span id="serverIP">读取中...</span></div>
             </div>
         </header>
 
@@ -757,6 +791,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.6.0"></script>
+    <script src="/static/app.js?v=3.6.1"></script>
 </body>
 </html>

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,48 @@ import (
 )
 
 const panelSessionMaxAge = 30 * 24 * 60 * 60
+
+// serverIPs reads this server's active interfaces rather than the browser's IP.
+func serverIPs() ([]string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	ips := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err != nil || !ip.IsGlobalUnicast() {
+				continue
+			}
+			value := ip.String()
+			if !seen[value] {
+				ips = append(ips, value)
+				seen[value] = true
+			}
+		}
+	}
+	// Public addresses precede private ones; IPv4 precedes IPv6 within each group.
+	sort.Slice(ips, func(i, j int) bool {
+		left, right := net.ParseIP(ips[i]), net.ParseIP(ips[j])
+		if left.IsPrivate() != right.IsPrivate() {
+			return !left.IsPrivate()
+		}
+		if (left.To4() != nil) != (right.To4() != nil) {
+			return left.To4() != nil
+		}
+		return ips[i] < ips[j]
+	})
+	return ips, nil
+}
 
 type ForwardingRule struct {
 	Listen       string   `toml:"listen" json:"listen"`
@@ -377,6 +420,16 @@ func main() {
 				})
 			}
 			c.File("./templates/index.html")
+		})
+
+		authorized.GET("/server_info", func(c *gin.Context) {
+			c.Header("Cache-Control", "no-store")
+			ips, err := serverIPs()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "无法读取本机 IP"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"ips": ips})
 		})
 
 		authorized.GET("/get_rules", func(c *gin.Context) {
