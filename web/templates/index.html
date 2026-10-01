@@ -139,25 +139,33 @@
             gap: 9px;
         }
         .status-label {
-            color: var(--muted);
-            font-size: 13px;
+            color: var(--ink);
+            font-size: 15px;
+            font-weight: 700;
         }
         .status-tag {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            font-size: 13px;
-            font-weight: 700;
+            gap: 9px;
+            padding: 7px 12px;
+            border: 1px solid var(--line);
+            border-radius: 9px;
+            background: var(--surface-soft);
+            font-size: 17px;
+            font-weight: 800;
         }
         .status-tag::before {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
+            flex-shrink: 0;
             border-radius: 50%;
             background: #94a3b8;
             content: "";
         }
         .status-tag.running {
             color: var(--success);
+            border-color: #bbf7d0;
+            background: #f0fdf4;
         }
         .status-tag.running::before {
             background: var(--success);
@@ -165,6 +173,8 @@
         }
         .status-tag.stopped {
             color: var(--danger);
+            border-color: #fecaca;
+            background: var(--danger-soft);
         }
         .status-tag.stopped::before {
             background: var(--danger);
@@ -411,6 +421,10 @@
             resize: vertical;
             line-height: 1.55;
         }
+        #rulesInput {
+            height: min(52vh, 480px);
+            min-height: 300px;
+        }
         .form-group input:disabled, .form-group select:disabled {
             background: #f1f5f9;
             color: #94a3b8;
@@ -532,6 +546,10 @@
             }
             .rule-actions button {
                 flex: 1 1 150px;
+            }
+            .selection-count {
+                flex: 1 1 100%;
+                text-align: left;
             }
             table {
                 min-width: 0;
@@ -688,10 +706,11 @@
             <div class="section-header">
                 <div>
                     <h2>转发规则</h2>
-                    <p class="section-description">选择规则后可批量删除；编辑或新增后会自动重启服务</p>
+                    <p class="section-description">选择规则后可复制或删除；复制内容可粘贴到批量添加中导入</p>
                 </div>
                 <div class="rule-actions">
                     <span id="selectedCount" class="selection-count">已选 0 条</span>
+                    <button id="copySelectedButton" class="btn-secondary" type="button" disabled>复制所选</button>
                     <button id="deleteSelectedButton" class="btn-danger" type="button" disabled>删除所选</button>
                     <button id="openBatchRulesButton" class="batch-btn" type="button">批量添加</button>
                     <button id="openAddRuleButton" type="button">添加规则</button>
@@ -786,12 +805,13 @@
             <div class="modal-body">
                 <div id="batchModalMessage" class="modal-message" hidden></div>
                 <div class="form-group">
-                    <label for="rulesInput">请输入单远端转发规则（每行一个规则）：</label>
+                    <label for="rulesInput">粘贴复制的规则，或手动输入（每行一个规则）：</label>
                     <div class="format-example">
                         IPv4：中转端口:落地机IP:目标端口<br>
-                        IPv6：中转端口:[落地机IPv6]:目标端口
+                        IPv6：中转端口:[落地机IPv6]:目标端口<br>
+                        “复制所选”的内容可直接粘贴，完整保留多远端、策略和权重。
                     </div>
-                    <textarea id="rulesInput" rows="8"></textarea>
+                    <textarea id="rulesInput" rows="18" placeholder="粘贴复制的规则，或每行填写一个规则，例如：&#10;10001:10.0.0.11:443&#10;10002:[2001:db8::12]:443" spellcheck="false"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -801,6 +821,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.6.2"></script>
+    <script src="/static/app.js?v=3.7.0"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const batchRulesModal = document.getElementById('batchRulesModal');
     const selectAllRules = document.getElementById('selectAllRules');
     const deleteSelectedButton = document.getElementById('deleteSelectedButton');
+    const copySelectedButton = document.getElementById('copySelectedButton');
     const selectedCount = document.getElementById('selectedCount');
     const closeRuleModalButton = document.getElementById('closeRuleModalButton');
     const closeBatchModalButton = document.getElementById('closeBatchModalButton');
@@ -33,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pageSize = 100;
     let totalRules = 0;
     let editingListen = null;
-    const selectedRules = new Set();
+    const selectedRules = new Map();
 
     const pageSizeSelect = document.getElementById('pageSizeSelect');
 
@@ -106,6 +107,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const extraRemotes = rule.ExtraRemotes || rule.extra_remotes || [];
                 const balance = rule.Balance || rule.balance || '';
                 return { listen, remote, extraRemotes, balance };
+            });
+            allRules.forEach(rule => {
+                if (selectedRules.has(rule.listen)) {
+                    selectedRules.set(rule.listen, rule);
+                }
             });
 
             renderForwardingRules();
@@ -196,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
             row.classList.toggle('selected-row', checkbox.checked);
             checkbox.addEventListener('change', () => {
                 if (checkbox.checked) {
-                    selectedRules.add(listen);
+                    selectedRules.set(listen, rule);
                 } else {
                     selectedRules.delete(listen);
                 }
@@ -259,6 +265,89 @@ document.addEventListener('DOMContentLoaded', () => {
         selectAllRules.disabled = visibleListens.length === 0;
         selectedCount.textContent = `已选 ${selectedRules.size} 条`;
         deleteSelectedButton.disabled = selectedRules.size === 0;
+        copySelectedButton.disabled = selectedRules.size === 0;
+    }
+
+    function exportRule(rule) {
+        const port = splitHostPort(rule.listen)?.port;
+        const extraRemotes = Array.isArray(rule.extraRemotes) ? rule.extraRemotes : [];
+        if (port && rule.listen === `[::]:${port}` && extraRemotes.length === 0 && !rule.balance) {
+            return `${port}:${rule.remote}`;
+        }
+        return JSON.stringify({
+            listen: rule.listen,
+            remote: rule.remote,
+            extra_remotes: extraRemotes,
+            balance: rule.balance || ''
+        });
+    }
+
+    async function writeClipboard(text) {
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return;
+            } catch (_) {
+                // HTTP 面板或权限受限时尝试浏览器的传统复制方式。
+            }
+        }
+        const previousFocus = document.activeElement;
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.readOnly = true;
+        textarea.style.cssText = 'position:fixed;left:-9999px;top:0;';
+        document.body.appendChild(textarea);
+        try {
+            textarea.select();
+            textarea.setSelectionRange(0, text.length);
+            if (!document.execCommand('copy')) {
+                throw new Error('浏览器不允许自动复制');
+            }
+        } finally {
+            textarea.remove();
+            previousFocus?.focus();
+        }
+    }
+
+    async function copySelectedRules() {
+        if (selectedRules.size === 0) return;
+        const text = Array.from(selectedRules.values()).map(exportRule).join('\n');
+        const count = selectedRules.size;
+        copySelectedButton.disabled = true;
+        try {
+            await writeClipboard(text);
+            outputDiv.textContent = `已复制 ${count} 条规则，可粘贴到批量添加中导入`;
+        } catch (error) {
+            rulesInput.value = text;
+            showModalMessage(batchModalMessage, '浏览器不允许自动复制，内容已选中，请手动复制后粘贴到目标面板的批量添加中。');
+            openModal(batchRulesModal);
+            rulesInput.focus();
+            rulesInput.select();
+        } finally {
+            updateSelectionControls();
+        }
+    }
+
+    function parseBatchRule(line) {
+        if (line.startsWith('{')) {
+            const value = JSON.parse(line);
+            if (typeof value.listen !== 'string' || typeof value.remote !== 'string' ||
+                (value.extra_remotes !== undefined && (!Array.isArray(value.extra_remotes) || value.extra_remotes.some(remote => typeof remote !== 'string'))) ||
+                (value.balance !== undefined && typeof value.balance !== 'string')) {
+                throw new Error('复制规则的字段格式不正确');
+            }
+            return {
+                listen: value.listen,
+                remote: value.remote,
+                extra_remotes: value.extra_remotes || [],
+                balance: value.balance || ''
+            };
+        }
+        const match = line.match(/^(\d+):(\[.*?\]:\d+|\S+)$/);
+        if (!match) {
+            throw new Error('请填写“中转端口:远端地址:目标端口”或粘贴复制的规则');
+        }
+        return { listen: `[::]:${match[1]}`, remote: match[2] };
     }
 
     function formatBalance(balance, backendCount) {
@@ -436,7 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function deleteSelectedRules() {
-        const listens = Array.from(selectedRules);
+        const listens = Array.from(selectedRules.keys());
         if (listens.length === 0) {
             return;
         }
@@ -528,6 +617,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const isEditing = editingListen !== null;
+            const updatedRule = {
+                listen: formatListenAddress(localPort),
+                remote: formatHostPort(remoteIP, remotePort),
+                extraRemotes,
+                balance
+            };
             const requestURL = isEditing
                 ? `/update_rule?listen=${encodeURIComponent(editingListen)}`
                 : '/add_rule';
@@ -555,6 +650,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(`${isEditing ? '修改' : '添加'}规则失败：${detail}`);
             }
 
+            if (isEditing && selectedRules.has(editingListen)) {
+                selectedRules.delete(editingListen);
+                selectedRules.set(updatedRule.listen, updatedRule);
+                updateSelectionControls();
+            }
+
             const restartResponse = await fetch('/restart_service', {
                 method: 'POST'
             });
@@ -578,56 +679,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function addBatchRules() {
-        const rules = rulesInput.value.trim().split('\n').filter(Boolean);
+        const rules = rulesInput.value.split('\n').map(line => line.trim()).filter(Boolean);
         if (rules.length === 0) {
             showModalMessage(batchModalMessage, '请输入要添加的规则');
             return;
         }
 
-        const usedPorts = new Set(allRules.map(r => r.listen.substring(r.listen.lastIndexOf(':') + 1)));
+        const usedListens = new Set(allRules.map(rule => rule.listen));
         const failedRules = [];
-        let hasSuccess = false;
+        const failedLines = [];
+        let successCount = 0;
+        addBatchRulesButton.disabled = true;
 
-        for (const rule of rules) {
-            const match = rule.match(/^(\d+):(\[.*?\]:\d+|\S+)$/);
-            if (!match) {
-                failedRules.push(`格式错误: ${rule}`);
-                continue;
-            }
-
-            const localPort = match[1];
-            const remoteAddress = match[2];
-
-            if (usedPorts.has(localPort)) {
-                failedRules.push(`端口 ${localPort} 已被占用`);
-                continue;
-            }
-
+        for (const [index, line] of rules.entries()) {
             try {
+                const rule = parseBatchRule(line);
+                if (usedListens.has(rule.listen)) {
+                    throw new Error(`监听地址 ${rule.listen} 已存在`);
+                }
                 const response = await fetch('/add_rule', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        listen: `[::]:${localPort}`,
-                        remote: remoteAddress
-                    })
+                    body: JSON.stringify(rule)
                 });
 
                 if (!response.ok) {
-                    failedRules.push(`添加失败: ${rule}`);
-                    continue;
+                    let detail = response.statusText;
+                    try {
+                        const data = await response.json();
+                        detail = data.error || detail;
+                    } catch (_) {
+                        // 保留 HTTP 状态文本。
+                    }
+                    throw new Error(detail || '添加失败');
                 }
 
-                usedPorts.add(localPort);
-                hasSuccess = true;
+                usedListens.add(rule.listen);
+                successCount++;
             } catch (error) {
-                failedRules.push(`添加失败: ${rule} - ${error.message}`);
+                failedLines.push(line);
+                failedRules.push(`第 ${index + 1} 行：${error.message}`);
             }
         }
 
-        if (hasSuccess) {
+        if (successCount > 0) {
             try {
                 const restartResponse = await fetch('/restart_service', {
                     method: 'POST'
@@ -636,21 +733,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error('重启服务失败');
                 }
             } catch (error) {
-                failedRules.push('服务重启失败');
+                failedRules.push('规则已添加，但服务重启失败，请手动重启服务');
             }
         }
 
-        if (hasSuccess) {
-            totalRules += rules.length - failedRules.length;
+        if (successCount > 0) {
+            totalRules += successCount;
+            await refreshRulesAfterChange();
+            await updateServiceStatus();
         }
-        await refreshRulesAfterChange();
-        await updateServiceStatus();
+        addBatchRulesButton.disabled = false;
+        rulesInput.value = failedLines.join('\n');
 
         if (failedRules.length > 0) {
-            showModalMessage(batchModalMessage, `添加完成。\n失败的规则：\n${failedRules.join('\n')}`);
+            showModalMessage(batchModalMessage, `已添加 ${successCount} 条，失败 ${failedLines.length} 条。\n${failedRules.join('\n')}`);
         } else {
-            outputDiv.textContent = '所有规则添加成功，服务已重启';
-            rulesInput.value = '';
+            outputDiv.textContent = `已添加 ${successCount} 条规则，服务已重启`;
             closeBatchModal();
         }
     }
@@ -735,11 +833,12 @@ document.addEventListener('DOMContentLoaded', () => {
     cancelBatchButton.addEventListener('click', closeBatchModal);
     extraRemotesInput.addEventListener('input', updateBalanceFields);
     deleteSelectedButton.addEventListener('click', deleteSelectedRules);
+    copySelectedButton.addEventListener('click', copySelectedRules);
     selectAllRules.addEventListener('change', () => {
         allRules.forEach(rule => {
             if (!rule.listen) return;
             if (selectAllRules.checked) {
-                selectedRules.add(rule.listen);
+                selectedRules.set(rule.listen, rule);
             } else {
                 selectedRules.delete(rule.listen);
             }

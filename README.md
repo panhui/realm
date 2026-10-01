@@ -4,7 +4,12 @@
 
 本脚本在原教程基础上增加了 Realm 安装、转发规则管理、服务重启、脚本更新和可视化面板管理功能。
 
-## v3.6.2 更新重点
+## v3.7.0 更新重点
+
+- 新增“复制所选”，支持跨页复制，粘贴到批量添加即可导入。
+- 复制和导入完整保留监听地址、多远端、负载均衡策略和权重。
+- 批量添加兼容旧版 IPv4 / IPv6 文本格式及复制规则，失败时保留未导入的内容。
+- 加高批量添加输入框，放大运行状态并突出绿色运行、红色停止状态。
 
 - 删除服务控制标题和说明，将 Realm 服务运行状态移至服务操作栏。
 - 启动、停止、重启和退出登录按钮缩小，统一使用白色弱化样式。
@@ -34,7 +39,7 @@
 
 ```text
 ################################################
-#        Realm 一键转发脚本 (v3.6.2)         #
+#        Realm 一键转发脚本 (v3.7.0)         #
 ################################################
  Realm 状态: 运行中
  面板 状态: 已安装但未启动
@@ -62,7 +67,7 @@
 ### Debian / Ubuntu / CentOS
 
 ```bash
-curl -L https://github.com/panhui/realm/releases/download/v3.6.2/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -L https://github.com/panhui/realm/releases/download/v3.7.0/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 或使用主分支最新版：
