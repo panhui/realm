@@ -33,13 +33,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let allRules = [];
     let currentPage = 1;
-    let pageSize = 100;
+    let pageSize = 1000;
     let totalRules = 0;
     let editingListen = null;
     let trafficAvailable = false;
     const selectedRules = new Map();
 
     const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const uploadSpeed = document.getElementById('uploadSpeed');
+    const downloadSpeed = document.getElementById('downloadSpeed');
+    const speedSummary = document.getElementById('speedSummary');
+    let speedRequestPending = false;
+
+    async function updateTrafficSpeed() {
+        if (speedRequestPending || document.hidden) return;
+        speedRequestPending = true;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+            const response = await fetch('/traffic_speed', { cache: 'no-store', signal: controller.signal });
+            if (!response.ok) throw new Error('读取速度失败');
+            const data = await response.json();
+            if (!data.available) throw new Error(data.warning || '速度统计暂不可用');
+            uploadSpeed.textContent = `${formatTraffic(data.upload_bytes_per_second)}/s`;
+            downloadSpeed.textContent = `${formatTraffic(data.download_bytes_per_second)}/s`;
+            speedSummary.title = '所有 Realm 规则的合计速度，每 3 秒更新';
+            speedSummary.classList.remove('unavailable');
+        } catch (error) {
+            uploadSpeed.textContent = '—';
+            downloadSpeed.textContent = '—';
+            speedSummary.title = error.message;
+            speedSummary.classList.add('unavailable');
+        } finally {
+            clearTimeout(timeout);
+            speedRequestPending = false;
+        }
+    }
 
     async function updateServerIP() {
         const element = document.getElementById('serverIP');
@@ -240,10 +269,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     cell.className = 'remote-list';
                 }
                 if (cellIndex === 1) {
+                    const portLabel = document.createElement('span');
+                    portLabel.className = 'port-label';
                     const state = document.createElement('span');
-                    state.className = `rule-state ${rule.disabled ? 'paused' : 'enabled'}`;
-                    state.textContent = rule.disabled ? '已暂停' : '启用中';
-                    cell.appendChild(state);
+                    state.className = `rule-status-dot ${rule.disabled ? 'paused' : 'enabled'}`;
+                    state.title = rule.disabled ? '已暂停' : '已启用';
+                    state.setAttribute('role', 'img');
+                    state.setAttribute('aria-label', state.title);
+                    portLabel.append(state, document.createTextNode(value));
+                    cell.replaceChildren(portLabel);
                 }
                 if (cellIndex >= 4) {
                     cell.className = 'traffic-value';
@@ -301,7 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const value = Number(bytes) || 0;
         if (value === 0) return '0 B';
         const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+        const index = Math.max(0, Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1));
         return `${(value / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
     }
 
@@ -963,6 +997,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchForwardingRules();
     updateServerIP();
     updateServiceStatus();
+    updateTrafficSpeed();
+    setInterval(updateTrafficSpeed, 3000);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) updateTrafficSpeed();
+    });
     
     setInterval(updateServiceStatus, 15000);
     setInterval(() => {

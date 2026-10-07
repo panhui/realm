@@ -137,7 +137,25 @@
             display: flex;
             align-items: center;
             gap: 9px;
+            flex-wrap: wrap;
         }
+        .speed-summary {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 18px;
+            margin-left: 12px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .speed-item { white-space: nowrap; }
+        .speed-item strong {
+            margin-left: 5px;
+            color: var(--ink);
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+        .speed-summary.unavailable strong { color: var(--muted); }
         .status-label {
             color: var(--ink);
             font-size: 15px;
@@ -193,6 +211,7 @@
             gap: 12px;
             padding: 12px 20px;
             margin-bottom: 18px;
+            flex-wrap: wrap;
         }
         .section-header h2 {
             margin-bottom: 4px;
@@ -372,13 +391,20 @@
             background: #f0fdf4;
             color: #15803d;
         }
-        .rule-state {
-            display: block;
-            margin-top: 3px;
-            font-size: 11px;
+        .port-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
         }
-        .rule-state.enabled { color: #15803d; }
-        .rule-state.paused { color: #b45309; }
+        .rule-status-dot {
+            width: 8px;
+            height: 8px;
+            flex: 0 0 8px;
+            border-radius: 50%;
+        }
+        .rule-status-dot.enabled { background: var(--success); }
+        .rule-status-dot.paused { background: var(--danger); }
         .paused-row { background: #fffbeb; }
         .traffic-value { white-space: nowrap; font-variant-numeric: tabular-nums; }
         .traffic-warning {
@@ -575,6 +601,10 @@
             .status-wrapper {
                 align-self: flex-start;
             }
+            .speed-summary {
+                flex-basis: 100%;
+                margin: 3px 0 0;
+            }
             .service-card, .section-header {
                 padding: 16px;
             }
@@ -668,10 +698,6 @@
             tbody td.table-actions button + button {
                 margin-left: 0;
             }
-            .rule-state {
-                grid-column: 2;
-                margin-top: 0;
-            }
             .empty-table thead {
                 display: none;
             }
@@ -732,6 +758,10 @@
             <div class="status-wrapper" aria-live="polite">
                 <span class="status-label">Realm 服务</span>
                 <span id="serviceStatus" class="status-tag">检查中...</span>
+                <div id="speedSummary" class="speed-summary" title="所有 Realm 规则的合计速度，每 3 秒更新">
+                    <span class="speed-item">↑ 上传 <strong id="uploadSpeed">—</strong></span>
+                    <span class="speed-item">↓ 下载 <strong id="downloadSpeed">—</strong></span>
+                </div>
             </div>
             <div class="button-group">
                 <button id="startButton" class="service-button" type="button">启动服务</button>
@@ -788,7 +818,9 @@
                         <option value="10">10</option>
                         <option value="20">20</option>
                         <option value="50">50</option>
-                        <option value="100" selected>100</option>
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000" selected>1000</option>
                     </select>
                 </div>
                 <button id="prevPage" class="btn-ghost" type="button">上一页</button>
@@ -868,6 +900,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.8.0"></script>
+    <script src="/static/app.js?v=3.8.1"></script>
 </body>
 </html>

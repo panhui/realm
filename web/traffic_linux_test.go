@@ -41,6 +41,7 @@ func TestNFTLive(t *testing.T) {
 	if err := m.Refresh(c); err != nil {
 		t.Fatal(err)
 	}
+	m.SampleSpeed(c)
 	transfer := func(listener net.Listener) {
 		t.Helper()
 		done := make(chan error, 1)
@@ -114,6 +115,10 @@ func TestNFTLive(t *testing.T) {
 	udpTransfer(listen4.Addr().String())
 	udpTransfer(listen6.Addr().String())
 	time.Sleep(100 * time.Millisecond)
+	m.SampleSpeed(c)
+	if speed := m.Speed(); !speed.Available || speed.Upload <= 0 || speed.Download <= 0 {
+		t.Fatalf("live speed missing: %#v", speed)
+	}
 	if err := m.Refresh(c); err != nil {
 		t.Fatal(err)
 	}

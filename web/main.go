@@ -414,6 +414,16 @@ func main() {
 	if err := traffic.Refresh(config); err != nil {
 		log.Printf("流量统计暂不可用: %v", err)
 	}
+	traffic.SampleSpeed(config)
+	go func() {
+		ticker := time.NewTicker(trafficSpeedInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			mu.Lock()
+			traffic.SampleSpeed(config)
+			mu.Unlock()
+		}
+	}()
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -513,7 +523,7 @@ func main() {
 			}
 			size, err := strconv.Atoi(sizeStr)
 			if err != nil || size < 1 {
-				size = 10
+				size = 1000
 			}
 
 			mu.Lock()
@@ -553,6 +563,14 @@ func main() {
 				"traffic_available": traffic.Available,
 				"traffic_warning":   traffic.Warning,
 			})
+		})
+
+		authorized.GET("/traffic_speed", func(c *gin.Context) {
+			c.Header("Cache-Control", "no-store")
+			mu.Lock()
+			speed := traffic.Speed()
+			mu.Unlock()
+			c.JSON(http.StatusOK, speed)
 		})
 
 		authorized.POST("/add_rule", func(c *gin.Context) {

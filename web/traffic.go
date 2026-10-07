@@ -18,6 +18,15 @@ import (
 )
 
 const trafficTable = "realm_panel_traffic"
+const trafficSpeedInterval = 3 * time.Second
+
+type trafficSpeed struct {
+	Upload    float64 `json:"upload_bytes_per_second"`
+	Download  float64 `json:"download_bytes_per_second"`
+	Available bool    `json:"available"`
+	Warning   string  `json:"warning,omitempty"`
+	SampledAt int64   `json:"sampled_at"`
+}
 
 type trafficUsage struct {
 	Upload   uint64 `json:"upload"`
@@ -65,6 +74,79 @@ type TrafficMonitor struct {
 	state     trafficState
 	Available bool
 	Warning   string
+	speed     trafficSpeed
+	speedRaw  map[string]rawTraffic
+	speedAt   time.Time
+}
+
+// Speed uses kernel counter deltas, not resettable saved totals. One shared
+// sampler keeps the measurement interval independent of browser polls.
+func (m *TrafficMonitor) SampleSpeed(c Config) {
+	raw, exists, err := m.read()
+	if err == nil && !exists {
+		err = errors.New("流量计数表尚未就绪")
+	}
+	if err == nil {
+		for _, rule := range c.Endpoints {
+			if !rule.Disabled {
+				if _, ok := raw[trafficID(rule.Listen)]; !ok {
+					err = errors.New("规则流量计数器尚未就绪")
+					break
+				}
+			}
+		}
+	}
+	if err != nil {
+		m.speed = trafficSpeed{Warning: "速度统计不可用：" + err.Error()}
+		m.speedRaw, m.speedAt = nil, time.Time{}
+		return
+	}
+	m.sampleSpeed(c, raw, time.Now())
+}
+
+func (m *TrafficMonitor) sampleSpeed(c Config, raw map[string]rawTraffic, now time.Time) {
+	seconds := now.Sub(m.speedAt).Seconds()
+	var up, down float64
+	current := make(map[string]rawTraffic)
+	for _, rule := range c.Endpoints {
+		if rule.Disabled {
+			continue
+		}
+		id := trafficID(rule.Listen)
+		value, ok := raw[id]
+		if !ok {
+			continue
+		}
+		current[id] = value
+		previous, exists := m.speedRaw[id]
+		// New or replaced counters establish a baseline; never turn their
+		// history or counter rollback into a speed spike.
+		if m.speedAt.IsZero() || seconds <= 0 || !exists || previous.epoch != value.epoch {
+			continue
+		}
+		if value.up >= previous.up {
+			up += float64(value.up-previous.up) / seconds
+		}
+		if value.down >= previous.down {
+			down += float64(value.down-previous.down) / seconds
+		}
+	}
+	m.speed = trafficSpeed{Upload: up, Download: down, Available: true, SampledAt: now.UnixMilli()}
+	m.speedRaw, m.speedAt = current, now
+}
+
+func (m *TrafficMonitor) Speed() trafficSpeed {
+	speed := m.speed
+	if speed.Available && time.Since(m.speedAt) > 3*trafficSpeedInterval {
+		speed.Available, speed.Warning = false, "速度统计暂未更新"
+	}
+	if !m.Available {
+		speed.Available, speed.Warning = false, m.Warning
+	}
+	if !speed.Available {
+		speed.Upload, speed.Download = 0, 0
+	}
+	return speed
 }
 
 func newTrafficMonitor(path string, runner nftRunner) (*TrafficMonitor, error) {
