@@ -155,6 +155,42 @@ func TestTrafficResetSaveFailureRetainsTotals(t *testing.T) {
 	}
 }
 
+func TestEditingListenPreservesTraffic(t *testing.T) {
+	isolatedConfig(t)
+	runner := &fakeNFT{}
+	var err error
+	traffic, err = newTrafficMonitor(filepath.Join(t.TempDir(), "traffic.json"), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, current := "[::]:10001", "[::]:11001"
+	config.Endpoints = []ForwardingRule{{Listen: old, Remote: "203.0.113.1:443"}}
+	if err := SaveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	runner.set(old, 1000, 2000)
+	if err := updateForwardingRuleLocked(old, ForwardingRule{Listen: current, Remote: "203.0.113.2:443"}); err != nil {
+		t.Fatal(err)
+	}
+	runner.set(current, 100, 200)
+	if err := traffic.Refresh(config); err != nil {
+		t.Fatal(err)
+	}
+	usage := traffic.state.Rules[current]
+	if usage.Upload != 1100 || usage.Download != 2200 {
+		t.Fatalf("listen edit lost or double counted history: %#v", usage)
+	}
+	if _, exists := traffic.state.Rules[old]; exists {
+		t.Fatal("old listen still owns history")
+	}
+	if _, err := deleteForwardingRulesLocked([]string{current}); err != nil {
+		t.Fatal(err)
+	}
+	if len(traffic.state.Rules) != 0 {
+		t.Fatal("deleted rule retained history")
+	}
+}
+
 func TestTrafficOnlyTouchesOwnedCounterTable(t *testing.T) {
 	c := Config{}
 	c.Network.UseUDP = true

@@ -610,6 +610,14 @@ func main() {
 
 			mu.Lock()
 			err := updateForwardingRuleLocked(originalListen, input)
+			if err == nil {
+				for _, rule := range config.Endpoints {
+					if rule.Listen == input.Listen {
+						input = rule
+						break
+					}
+				}
+			}
 			mu.Unlock()
 
 			switch {
