@@ -407,6 +407,14 @@
         .rule-status-dot.paused { background: var(--danger); }
         .paused-row { background: #fffbeb; }
         .traffic-value { white-space: nowrap; font-variant-numeric: tabular-nums; }
+        @media (min-width: 761px) {
+            th.traffic-column, td.traffic-value {
+                width: 1%;
+                padding-left: 8px;
+                padding-right: 8px;
+                white-space: nowrap;
+            }
+        }
         .traffic-warning {
             padding: 10px 20px;
             border-bottom: 1px solid var(--line);
@@ -758,7 +766,7 @@
             <div class="status-wrapper" aria-live="polite">
                 <span class="status-label">Realm 服务</span>
                 <span id="serviceStatus" class="status-tag">检查中...</span>
-                <div id="speedSummary" class="speed-summary" title="所有 Realm 规则的合计速度，每 3 秒更新">
+                <div id="speedSummary" class="speed-summary" title="所有 Realm 规则的合计速度，按 bit/s 显示（字节速度 × 8），每 3 秒更新">
                     <span class="speed-item">↑ 上传 <strong id="uploadSpeed">—</strong></span>
                     <span class="speed-item">↓ 下载 <strong id="downloadSpeed">—</strong></span>
                 </div>
@@ -801,8 +809,8 @@
                             <th>中转端口</th>
                             <th>远端节点</th>
                             <th>负载均衡</th>
-                            <th>已用上传</th>
-                            <th>已用下载</th>
+                            <th class="traffic-column">已用上传</th>
+                            <th class="traffic-column">已用下载</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -900,6 +908,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.8.1"></script>
+    <script src="/static/app.js?v=3.8.2"></script>
 </body>
 </html>

@@ -55,9 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('读取速度失败');
             const data = await response.json();
             if (!data.available) throw new Error(data.warning || '速度统计暂不可用');
-            uploadSpeed.textContent = `${formatTraffic(data.upload_bytes_per_second)}/s`;
-            downloadSpeed.textContent = `${formatTraffic(data.download_bytes_per_second)}/s`;
-            speedSummary.title = '所有 Realm 规则的合计速度，每 3 秒更新';
+            uploadSpeed.textContent = formatSpeed(data.upload_bytes_per_second);
+            downloadSpeed.textContent = formatSpeed(data.download_bytes_per_second);
+            speedSummary.title = '所有 Realm 规则的合计速度，按 bit/s 显示（字节速度 × 8），每 3 秒更新';
             speedSummary.classList.remove('unavailable');
         } catch (error) {
             uploadSpeed.textContent = '—';
@@ -337,6 +337,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
         const index = Math.max(0, Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1));
         return `${(value / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+    }
+
+    function formatSpeed(bytesPerSecond) {
+        const bits = Number(bytesPerSecond) * 8;
+        if (!Number.isFinite(bits) || bits <= 0) return '0 bit/s';
+        const units = ['bit/s', 'Kbit/s', 'Mbit/s', 'Gbit/s', 'Tbit/s', 'Pbit/s'];
+        const index = Math.max(0, Math.min(Math.floor(Math.log(bits) / Math.log(1000)), units.length - 1));
+        return `${(bits / Math.pow(1000, index)).toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
     }
 
     async function toggleRule(rule, button) {

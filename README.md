@@ -4,6 +4,11 @@
 
 本脚本在原教程基础上增加了 Realm 安装、转发规则管理、服务重启、脚本更新和可视化面板管理功能。
 
+## v3.8.2 更新重点
+
+- 上传 / 下载速度由字节速度乘以 8 转为比特速度，使用 bit/s、Kbit/s、Mbit/s 等单位，按 1000 进位；仍每 3 秒刷新。
+- 缩小“已用上传 / 已用下载”两列宽度和间距，字体大小不变；累计流量仍按字节显示，不乘以 8。
+
 ## v3.8.1 更新重点
 
 - 规则端口前显示绿色（启用）/ 红色（暂停）状态点，不再单独占一行；悬停可查看状态。
@@ -55,7 +60,7 @@
 
 ```text
 ################################################
-#        Realm 一键转发脚本 (v3.8.1)         #
+#        Realm 一键转发脚本 (v3.8.2)         #
 ################################################
  Realm 状态: 运行中
  面板 状态: 已安装但未启动
@@ -83,7 +88,7 @@
 ### Debian / Ubuntu / CentOS
 
 ```bash
-curl -L https://github.com/panhui/realm/releases/download/v3.8.1/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
+curl -L https://github.com/panhui/realm/releases/download/v3.8.2/realm.sh -o realm.sh && chmod +x realm.sh && ./realm.sh
 ```
 
 或使用主分支最新版：
