@@ -67,7 +67,7 @@
             opacity: 0.48;
         }
         .app-shell {
-            width: min(1180px, calc(100% - 32px));
+            width: min(1320px, calc(100% - 32px));
             margin: 0 auto;
             padding: 28px 0 44px;
         }
@@ -356,6 +356,43 @@
         .table-actions button + button {
             margin-left: 6px;
         }
+        .pause-btn, .enable-btn {
+            border-color: var(--line);
+            background: #fff;
+            color: #475569;
+        }
+        .pause-btn:hover:not(:disabled), .enable-btn:hover:not(:disabled) {
+            background: var(--surface-soft);
+            color: var(--ink);
+            border-color: #cbd5e1;
+            box-shadow: none;
+        }
+        .enable-btn {
+            border-color: #bbf7d0;
+            background: #f0fdf4;
+            color: #15803d;
+        }
+        .rule-state {
+            display: block;
+            margin-top: 3px;
+            font-size: 11px;
+        }
+        .rule-state.enabled { color: #15803d; }
+        .rule-state.paused { color: #b45309; }
+        .paused-row { background: #fffbeb; }
+        .traffic-value { white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .traffic-warning {
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--line);
+            background: #fffbeb;
+            color: #92400e;
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+        .traffic-warning:empty { display: none; }
+        .section-header { align-items: flex-start; }
+        .section-header > div:first-child { flex: 1; min-width: 200px; }
+        .rule-actions { max-width: 720px; }
         .empty-state {
             padding: 42px 20px;
             color: var(--muted);
@@ -611,7 +648,7 @@
             tbody td.checkbox-cell {
                 display: block;
                 grid-column: 1;
-                grid-row: 1 / span 5;
+                grid-row: 1 / span 7;
                 width: auto;
                 padding-top: 4px;
                 text-align: left;
@@ -630,6 +667,10 @@
             }
             tbody td.table-actions button + button {
                 margin-left: 0;
+            }
+            .rule-state {
+                grid-column: 2;
+                margin-top: 0;
             }
             .empty-table thead {
                 display: none;
@@ -706,16 +747,20 @@
             <div class="section-header">
                 <div>
                     <h2>转发规则</h2>
-                    <p class="section-description">选择规则后可复制或删除；复制内容可粘贴到批量添加中导入</p>
+                    <p class="section-description">支持单条暂停、复制导入和多选清空流量</p>
+                    <p class="section-description">上传：客户端 → 中转端口；下载：中转端口 → 客户端</p>
                 </div>
                 <div class="rule-actions">
                     <span id="selectedCount" class="selection-count">已选 0 条</span>
                     <button id="copySelectedButton" class="btn-secondary" type="button" disabled>复制所选</button>
+                    <button id="clearTrafficButton" class="btn-ghost" type="button" disabled>清空所选流量</button>
                     <button id="deleteSelectedButton" class="btn-danger" type="button" disabled>删除所选</button>
                     <button id="openBatchRulesButton" class="batch-btn" type="button">批量添加</button>
                     <button id="openAddRuleButton" type="button">添加规则</button>
                 </div>
             </div>
+
+            <div id="trafficWarning" class="traffic-warning" aria-live="polite"></div>
 
             <div class="table-wrap">
                 <table id="forwardingTable">
@@ -726,6 +771,8 @@
                             <th>中转端口</th>
                             <th>远端节点</th>
                             <th>负载均衡</th>
+                            <th>已用上传</th>
+                            <th>已用下载</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -821,6 +868,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3.7.0"></script>
+    <script src="/static/app.js?v=3.8.0"></script>
 </body>
 </html>

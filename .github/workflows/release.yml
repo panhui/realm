@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -29,6 +30,14 @@ jobs:
           go test ./...
           go vet ./...
 
+      - name: Verify live Linux traffic counters in an isolated namespace
+        working-directory: web
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nftables iproute2
+          go test -c -o /tmp/realm-traffic.test .
+          sudo env REALM_NFT_TEST=1 unshare --net /tmp/realm-traffic.test -test.run '^TestNFTLive$' -test.v
+
       - name: Build amd64
         working-directory: web
         run: |
@@ -48,6 +57,7 @@ jobs:
             -r static templates
 
       - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |

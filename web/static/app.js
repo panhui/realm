@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectAllRules = document.getElementById('selectAllRules');
     const deleteSelectedButton = document.getElementById('deleteSelectedButton');
     const copySelectedButton = document.getElementById('copySelectedButton');
+    const clearTrafficButton = document.getElementById('clearTrafficButton');
+    const trafficWarning = document.getElementById('trafficWarning');
     const selectedCount = document.getElementById('selectedCount');
     const closeRuleModalButton = document.getElementById('closeRuleModalButton');
     const closeBatchModalButton = document.getElementById('closeBatchModalButton');
@@ -34,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pageSize = 100;
     let totalRules = 0;
     let editingListen = null;
+    let trafficAvailable = false;
     const selectedRules = new Map();
 
     const pageSizeSelect = document.getElementById('pageSizeSelect');
@@ -98,6 +101,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             totalRules = data.total;
+            trafficAvailable = data.traffic_available !== false;
+            trafficWarning.textContent = data.traffic_warning || '';
             const totalPages = Math.max(1, Math.ceil(totalRules / pageSize));
             currentPage = Math.min(Math.max(1, targetPage), totalPages);
 
@@ -106,7 +111,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const remote = rule.Remote || rule.remote;
                 const extraRemotes = rule.ExtraRemotes || rule.extra_remotes || [];
                 const balance = rule.Balance || rule.balance || '';
-                return { listen, remote, extraRemotes, balance };
+                return {
+                    listen, remote, extraRemotes, balance,
+                    disabled: Boolean(rule.disabled),
+                    uploadBytes: rule.upload_bytes || 0,
+                    downloadBytes: rule.download_bytes || 0
+                };
             });
             allRules.forEach(rule => {
                 if (selectedRules.has(rule.listen)) {
@@ -173,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (allRules.length === 0) {
             const row = document.createElement('tr');
             const cell = document.createElement('td');
-            cell.colSpan = 6;
+            cell.colSpan = 8;
             cell.className = 'empty-state';
             cell.textContent = '暂无转发规则';
             row.appendChild(cell);
@@ -192,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const localPort = listenParts?.port || listen;
 
             const row = document.createElement('tr');
+            row.classList.toggle('paused-row', rule.disabled);
             const selectCell = document.createElement('td');
             selectCell.className = 'checkbox-cell';
             const checkbox = document.createElement('input');
@@ -216,9 +227,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 (currentPage - 1) * pageSize + index + 1,
                 localPort,
                 [remote, ...extraRemotes].join('\n'),
-                formatBalance(balance, extraRemotes.length + 1)
+                formatBalance(balance, extraRemotes.length + 1),
+                formatTraffic(rule.uploadBytes),
+                formatTraffic(rule.downloadBytes)
             ];
-            const labels = ['序号', '中转端口', '远端节点', '负载均衡'];
+            const labels = ['序号', '中转端口', '远端节点', '负载均衡', '已用上传', '已用下载'];
             values.forEach((value, cellIndex) => {
                 const cell = document.createElement('td');
                 cell.textContent = value;
@@ -226,11 +239,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cellIndex === 2) {
                     cell.className = 'remote-list';
                 }
+                if (cellIndex === 1) {
+                    const state = document.createElement('span');
+                    state.className = `rule-state ${rule.disabled ? 'paused' : 'enabled'}`;
+                    state.textContent = rule.disabled ? '已暂停' : '启用中';
+                    cell.appendChild(state);
+                }
+                if (cellIndex >= 4) {
+                    cell.className = 'traffic-value';
+                    if (!trafficAvailable) cell.title = '统计暂不可用，显示上次保存值';
+                }
                 row.appendChild(cell);
             });
 
             const actionCell = document.createElement('td');
             actionCell.className = 'table-actions';
+            const toggleButton = document.createElement('button');
+            toggleButton.className = rule.disabled ? 'enable-btn' : 'pause-btn';
+            toggleButton.textContent = rule.disabled ? '启用' : '暂停';
+            toggleButton.addEventListener('click', () => toggleRule(rule, toggleButton));
+            actionCell.appendChild(toggleButton);
             const editButton = document.createElement('button');
             editButton.className = 'edit-btn';
             editButton.textContent = '编辑';
@@ -266,19 +294,70 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedCount.textContent = `已选 ${selectedRules.size} 条`;
         deleteSelectedButton.disabled = selectedRules.size === 0;
         copySelectedButton.disabled = selectedRules.size === 0;
+        clearTrafficButton.disabled = selectedRules.size === 0 || !trafficAvailable;
+    }
+
+    function formatTraffic(bytes) {
+        const value = Number(bytes) || 0;
+        if (value === 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+        return `${(value / Math.pow(1024, index)).toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
+    }
+
+    async function toggleRule(rule, button) {
+        button.disabled = true;
+        try {
+            const response = await fetch('/toggle_rule', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ listen: rule.listen, disabled: !rule.disabled })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || '切换规则状态失败');
+            outputDiv.textContent = `规则已${rule.disabled ? '启用' : '暂停'}，Realm 已重启`;
+        } catch (error) {
+            outputDiv.textContent = error.message;
+        } finally {
+            await fetchForwardingRules(currentPage);
+            await updateServiceStatus();
+            button.disabled = false;
+        }
+    }
+
+    async function clearSelectedTraffic() {
+        const listens = Array.from(selectedRules.keys());
+        if (!listens.length || !window.confirm(`确定清空选中的 ${listens.length} 条规则的上传和下载流量吗？`)) return;
+        clearTrafficButton.disabled = true;
+        try {
+            const response = await fetch('/reset_traffic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ listens })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || '清空流量失败');
+            await fetchForwardingRules(currentPage);
+            outputDiv.textContent = `已清空 ${result.cleared} 条规则的流量，转发服务未中断`;
+        } catch (error) {
+            outputDiv.textContent = error.message;
+        } finally {
+            updateSelectionControls();
+        }
     }
 
     function exportRule(rule) {
         const port = splitHostPort(rule.listen)?.port;
         const extraRemotes = Array.isArray(rule.extraRemotes) ? rule.extraRemotes : [];
-        if (port && rule.listen === `[::]:${port}` && extraRemotes.length === 0 && !rule.balance) {
+        if (port && rule.listen === `[::]:${port}` && extraRemotes.length === 0 && !rule.balance && !rule.disabled) {
             return `${port}:${rule.remote}`;
         }
         return JSON.stringify({
             listen: rule.listen,
             remote: rule.remote,
             extra_remotes: extraRemotes,
-            balance: rule.balance || ''
+            balance: rule.balance || '',
+            ...(rule.disabled ? { disabled: true } : {})
         });
     }
 
@@ -333,14 +412,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const value = JSON.parse(line);
             if (typeof value.listen !== 'string' || typeof value.remote !== 'string' ||
                 (value.extra_remotes !== undefined && (!Array.isArray(value.extra_remotes) || value.extra_remotes.some(remote => typeof remote !== 'string'))) ||
-                (value.balance !== undefined && typeof value.balance !== 'string')) {
+                (value.balance !== undefined && typeof value.balance !== 'string') ||
+                (value.disabled !== undefined && typeof value.disabled !== 'boolean')) {
                 throw new Error('复制规则的字段格式不正确');
             }
             return {
                 listen: value.listen,
                 remote: value.remote,
                 extra_remotes: value.extra_remotes || [],
-                balance: value.balance || ''
+                balance: value.balance || '',
+                ...(value.disabled ? { disabled: true } : {})
             };
         }
         const match = line.match(/^(\d+):(\[.*?\]:\d+|\S+)$/);
@@ -621,7 +702,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 listen: formatListenAddress(localPort),
                 remote: formatHostPort(remoteIP, remotePort),
                 extraRemotes,
-                balance
+                balance,
+                disabled: selectedRules.get(editingListen)?.disabled || allRules.find(rule => rule.listen === editingListen)?.disabled || false
             };
             const requestURL = isEditing
                 ? `/update_rule?listen=${encodeURIComponent(editingListen)}`
@@ -834,6 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
     extraRemotesInput.addEventListener('input', updateBalanceFields);
     deleteSelectedButton.addEventListener('click', deleteSelectedRules);
     copySelectedButton.addEventListener('click', copySelectedRules);
+    clearTrafficButton.addEventListener('click', clearSelectedTraffic);
     selectAllRules.addEventListener('change', () => {
         allRules.forEach(rule => {
             if (!rule.listen) return;
@@ -882,4 +965,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updateServiceStatus();
     
     setInterval(updateServiceStatus, 15000);
+    setInterval(() => {
+        if (!document.hidden && ruleModal.hidden && batchRulesModal.hidden) {
+            fetchForwardingRules(currentPage);
+        }
+    }, 15000);
 });

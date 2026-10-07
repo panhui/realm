@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gin-contrib/sessions"
@@ -70,6 +72,7 @@ type ForwardingRule struct {
 	Remote       string   `toml:"remote" json:"remote"`
 	ExtraRemotes []string `toml:"extra_remotes,omitempty" json:"extra_remotes,omitempty"`
 	Balance      string   `toml:"balance,omitempty" json:"balance,omitempty"`
+	Disabled     bool     `toml:"-" json:"disabled,omitempty"`
 }
 
 type Config struct {
@@ -106,6 +109,7 @@ var (
 	realmConfigPath   = "/root/.realm/config.toml"
 	errRuleNotFound   = errors.New("未找到转发规则")
 	errListenConflict = errors.New("端口已存在")
+	traffic           *TrafficMonitor
 )
 
 func LoadConfig() error {
@@ -116,6 +120,9 @@ func LoadConfig() error {
 
 	var loaded Config
 	if _, err := toml.Decode(string(data), &loaded); err != nil {
+		return err
+	}
+	if err := restorePausedRules(data, &loaded); err != nil {
 		return err
 	}
 	config = loaded
@@ -144,17 +151,38 @@ func saveConfigLocked() error {
 	// Realm 2.9.5 requires the top-level endpoints field even when there are
 	// no forwarding rules. It must be written before [network] so TOML keeps
 	// it at the document root.
-	if len(config.Endpoints) == 0 {
+	activeCount := 0
+	for _, rule := range config.Endpoints {
+		if !rule.Disabled {
+			activeCount++
+		}
+	}
+	if activeCount == 0 {
 		buf.WriteString("endpoints = []\n\n")
+	}
+	for position, rule := range config.Endpoints {
+		if !rule.Disabled {
+			continue
+		}
+		data, err := json.Marshal(pausedRule{Position: position, Rule: rule})
+		if err != nil {
+			return err
+		}
+		buf.WriteString(pausedRulePrefix)
+		buf.Write(data)
+		buf.WriteByte('\n')
 	}
 
 	if err := encoder.Encode(map[string]any{"network": config.Network}); err != nil {
 		return err
 	}
 
-	if len(config.Endpoints) > 0 {
+	if activeCount > 0 {
 		buf.WriteString("\n")
 		for _, endpoint := range config.Endpoints {
+			if endpoint.Disabled {
+				continue
+			}
 			buf.WriteString("[[endpoints]]\n")
 			if err := encoder.Encode(endpoint); err != nil {
 				return err
@@ -163,7 +191,13 @@ func saveConfigLocked() error {
 		}
 	}
 
-	return os.WriteFile(realmConfigPath, buf.Bytes(), 0644)
+	if err := atomicWrite(realmConfigPath, buf.Bytes(), 0644); err != nil {
+		return err
+	}
+	if traffic != nil {
+		traffic.Refresh(config)
+	}
+	return nil
 }
 
 func SaveConfig() error {
@@ -263,10 +297,14 @@ func updateForwardingRuleLocked(originalListen string, input ForwardingRule) err
 	}
 
 	originalRule := config.Endpoints[ruleIndex]
+	input.Disabled = originalRule.Disabled
 	config.Endpoints[ruleIndex] = input
 	if err := saveConfigLocked(); err != nil {
 		config.Endpoints[ruleIndex] = originalRule
 		return err
+	}
+	if traffic != nil {
+		traffic.Move(originalListen, input.Listen)
 	}
 
 	return nil
@@ -303,6 +341,16 @@ func deleteForwardingRulesLocked(listens []string) (int, error) {
 	if err := saveConfigLocked(); err != nil {
 		config.Endpoints = originalRules
 		return 0, err
+	}
+	if traffic != nil {
+		for _, rule := range originalRules {
+			if _, removed := targets[rule.Listen]; removed {
+				delete(traffic.state.Rules, rule.Listen)
+			}
+		}
+		if err := traffic.persist(); err != nil {
+			traffic.Available, traffic.Warning = false, "流量记录保存失败："+err.Error()
+		}
 	}
 
 	return deleted, nil
@@ -358,6 +406,27 @@ func main() {
 	if err := LoadConfig(); err != nil {
 		log.Fatalf("无法加载 realm 配置: %v", err)
 	}
+	var err error
+	traffic, err = newTrafficMonitor(realmConfigPath+".traffic.json", systemNFTRunner{})
+	if err != nil {
+		log.Fatalf("无法加载流量记录: %v", err)
+	}
+	if err := traffic.Refresh(config); err != nil {
+		log.Printf("流量统计暂不可用: %v", err)
+	}
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			mu.Lock()
+			if err := LoadConfig(); err == nil {
+				traffic.Refresh(config)
+			} else {
+				traffic.Available, traffic.Warning = false, "读取规则失败，统计暂未更新："+err.Error()
+			}
+			mu.Unlock()
+		}
+	}()
 
 	r := gin.Default()
 	serviceManager := newServiceManager()
@@ -466,13 +535,23 @@ func main() {
 				end = totalCount
 			}
 			paginatedRules := config.Endpoints[start:end]
-			if paginatedRules == nil {
-				paginatedRules = []ForwardingRule{}
+			traffic.Refresh(config)
+			type ruleView struct {
+				ForwardingRule
+				UploadBytes   uint64 `json:"upload_bytes"`
+				DownloadBytes uint64 `json:"download_bytes"`
+			}
+			views := make([]ruleView, 0, len(paginatedRules))
+			for _, rule := range paginatedRules {
+				usage := traffic.state.Rules[rule.Listen]
+				views = append(views, ruleView{ForwardingRule: rule, UploadBytes: usage.Upload, DownloadBytes: usage.Download})
 			}
 
 			c.JSON(200, gin.H{
-				"rules": paginatedRules,
-				"total": totalCount,
+				"rules":             views,
+				"total":             totalCount,
+				"traffic_available": traffic.Available,
+				"traffic_warning":   traffic.Warning,
 			})
 		})
 
@@ -499,6 +578,9 @@ func main() {
 			}
 			config.Endpoints = append(config.Endpoints, input)
 			err := saveConfigLocked()
+			if err != nil {
+				config.Endpoints = config.Endpoints[:len(config.Endpoints)-1]
+			}
 			mu.Unlock()
 
 			if err != nil {
@@ -586,6 +668,54 @@ func main() {
 				c.JSON(500, gin.H{"error": "保存转发规则失败"})
 			default:
 				c.JSON(200, gin.H{"message": "批量删除成功", "deleted": deleted})
+			}
+		})
+
+		authorized.PUT("/toggle_rule", func(c *gin.Context) {
+			var input struct {
+				Listen   string `json:"listen"`
+				Disabled *bool  `json:"disabled"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil || input.Listen == "" || input.Disabled == nil {
+				c.JSON(400, gin.H{"error": "请指定规则和暂停状态"})
+				return
+			}
+			mu.Lock()
+			err := LoadConfig()
+			if err == nil {
+				err = toggleRuleLocked(input.Listen, *input.Disabled, serviceManager)
+			}
+			mu.Unlock()
+			if errors.Is(err, errRuleNotFound) {
+				c.JSON(404, gin.H{"error": err.Error()})
+			} else if err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+			} else {
+				c.JSON(200, gin.H{"message": "规则状态已更新", "disabled": *input.Disabled})
+			}
+		})
+
+		authorized.POST("/reset_traffic", func(c *gin.Context) {
+			var input struct {
+				Listens []string `json:"listens"`
+			}
+			if err := c.ShouldBindJSON(&input); err != nil || len(input.Listens) == 0 {
+				c.JSON(400, gin.H{"error": "请选择要清空流量的规则"})
+				return
+			}
+			mu.Lock()
+			err := LoadConfig()
+			count := 0
+			if err == nil {
+				count, err = traffic.Reset(config, input.Listens)
+			}
+			mu.Unlock()
+			if errors.Is(err, errRuleNotFound) {
+				c.JSON(404, gin.H{"error": err.Error()})
+			} else if err != nil {
+				c.JSON(500, gin.H{"error": err.Error()})
+			} else {
+				c.JSON(200, gin.H{"message": "所选流量已清空", "cleared": count})
 			}
 		})
 
